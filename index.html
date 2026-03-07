@@ -154,7 +154,8 @@ function render() {
   const maxLog = Math.max(...gameLogs.map(g => toNum(g[metric])), lineNum || 0, 1);
 
   // Player options
-  const playerOptions = tonight.map(t => `<option value="${t.PLAYER_NAME}" ${t.PLAYER_NAME===player?"selected":""}>${t.PLAYER_NAME}</option>`).join("");
+  const sortedPlayers = [...tonight].sort((a,b) => (a.PLAYER_NAME||"").localeCompare(b.PLAYER_NAME||""));
+  const playerOptions = sortedPlayers.map(t => `<option value="${t.PLAYER_NAME}" ${t.PLAYER_NAME===player?"selected":""}>${t.PLAYER_NAME} (${t.TEAM_ABBREVIATION||""})</option>`).join("");
   const metricOptions = METRICS.map(m => `<option value="${m}" ${m===metric?"selected":""}>${m}</option>`).join("");
 
   // Bars
