@@ -1,1 +1,336 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
+  <title>NBA DFS Dashboard</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: #111; color: #fff; font-family: system-ui, -apple-system, sans-serif; max-width: 480px; margin: 0 auto; padding-bottom: 40px; }
+    select, input { background: #2a2a2a; color: #fff; border: 1px solid #444; border-radius: 8px; padding: 8px 10px; font-size: 14px; width: 100%; }
+    .header { background: #1a1a1a; padding: 12px 16px; border-bottom: 1px solid #333; position: sticky; top: 0; z-index: 10; }
+    .header-title { color: #eab308; font-weight: 700; font-size: 13px; margin-bottom: 8px; }
+    .row { display: flex; gap: 8px; margin-top: 8px; }
+    .row select, .row input { flex: 1; }
+    .section { padding: 14px 16px 0; }
+    .label { color: #999; font-size: 10px; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px; }
+    .card { background: #1a1a1a; border-radius: 10px; padding: 12px 14px; }
+    .card-title { color: #eab308; font-weight: 700; font-size: 13px; margin-bottom: 8px; }
+    .stats-strip { background: #161616; padding: 10px 16px; border-bottom: 1px solid #222; overflow-x: auto; }
+    .stats-strip-inner { display: flex; gap: 16px; min-width: max-content; }
+    .stat-item { text-align: center; min-width: 40px; }
+    .stat-label { color: #555; font-size: 9px; margin-bottom: 2px; }
+    .stat-val { color: #eab308; font-weight: 700; font-size: 13px; }
+    .bar-chart { display: flex; align-items: flex-end; gap: 3px; height: 90px; }
+    .bar-wrap { flex: 1; display: flex; flex-direction: column; align-items: center; }
+    .bar-val { font-size: 7px; color: #aaa; margin-bottom: 1px; }
+    .bar { width: 100%; border-radius: 3px 3px 0 0; }
+    .bar-date { font-size: 7px; color: #555; margin-top: 2px; }
+    .line-indicator { border-top: 1px dashed #eab308; margin-top: 2px; padding-top: 2px; font-size: 9px; color: #eab308; }
+    .avg-cards { display: flex; gap: 8px; }
+    .avg-card { flex: 1; background: #1a1a1a; border-radius: 8px; padding: 10px 4px; text-align: center; }
+    .avg-label { color: #555; font-size: 9px; margin-bottom: 4px; }
+    .avg-val { font-weight: 700; font-size: 15px; }
+    .split-row { display: flex; gap: 8px; }
+    .split-card { flex: 1; background: #1a1a1a; border-radius: 10px; padding: 12px; }
+    .split-title { color: #555; font-size: 10px; margin-bottom: 8px; }
+    .mini-bars { display: flex; gap: 6px; align-items: flex-end; height: 56px; }
+    .mini-bar-wrap { flex: 1; display: flex; flex-direction: column; align-items: center; }
+    .mini-bar-val { font-size: 8px; color: #aaa; margin-bottom: 1px; }
+    .mini-bar { width: 100%; border-radius: 3px 3px 0 0; }
+    .mini-bar-label { font-size: 8px; color: #555; margin-top: 2px; }
+    .vegas-row { display: flex; justify-content: space-between; margin-bottom: 4px; }
+    .vegas-key { color: #666; font-size: 12px; }
+    .vegas-val { color: #fff; font-size: 12px; font-weight: 600; }
+    .dk-line { font-size: 16px; font-weight: 800; color: #fff; margin-bottom: 6px; }
+    .dk-odds { display: flex; justify-content: space-between; margin-bottom: 8px; }
+    .hit-row { display: flex; justify-content: space-between; padding: 4px 0; border-top: 1px solid #333; }
+    .hit-key { color: #666; font-size: 12px; }
+    .hit-val { color: #fff; font-size: 12px; font-weight: 600; }
+    .confidence { border-radius: 10px; padding: 14px; text-align: center; }
+    .conf-label { font-size: 20px; font-weight: 800; }
+    .conf-edge { color: #666; font-size: 11px; margin-top: 4px; }
+    .timestamp { text-align: center; padding: 16px; color: #333; font-size: 10px; }
+    .loading { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; gap: 16px; }
+    .error { padding: 24px; color: #ef4444; font-size: 14px; }
+    .no-data { color: #555; font-size: 11px; }
+  </style>
+</head>
+<body>
 
+<div id="app">
+  <div class="loading">
+    <div style="font-size:32px">🏀</div>
+    <div style="color:#666;font-size:14px">Loading dashboard...</div>
+  </div>
+</div>
+
+<script>
+const SHEET_ID = "12gBgVx_RCsIytjZHjfZWgLtG-R-zcPbYYE-CVFd4EDw";
+const METRICS = ["PTS","REB","AST","PRA","PR","PA","RA","FG3M","STOCKS","DK_FP","FPPM","USAGE_PPM"];
+
+let state = {
+  tonight: [], playerStats: [], props: [], splits: [],
+  player: "", metric: "PTS", line: "",
+  loading: true, error: null
+};
+
+const fetchSheet = (name) => new Promise((resolve, reject) => {
+  const url = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(name)}`;
+  fetch(url).then(r => {
+    if (!r.ok) throw new Error(`Failed: ${name}`);
+    return r.text();
+  }).then(text => {
+    Papa.parse(text, { header: true, skipEmptyLines: true, dynamicTyping: true,
+      complete: r => resolve(r.data), error: reject });
+  }).catch(reject);
+});
+
+const toNum = v => parseFloat(v) || 0;
+
+const impliedProb = (odds) => {
+  if (!odds) return null;
+  const o = parseFloat(odds);
+  return o < 0 ? Math.abs(o) / (Math.abs(o) + 100) : 100 / (o + 100);
+};
+
+const fmtOdds = o => o > 0 ? `+${o}` : `${o}`;
+
+const barColor = (val, line) => !line ? "#eab308" : val > line ? "#22c55e" : "#ef4444";
+const avgColor = (val, line) => !line ? "#eab308" : val >= line ? "#eab308" : "#f97316";
+
+function getConfidence(seasonRate, overImpl, edge) {
+  if (edge === null || seasonRate === null) return null;
+  if (edge >= 0.10 && seasonRate >= 0.65) return { label: "⭐⭐⭐⭐⭐ SMASH", color: "#22c55e" };
+  if (edge >= 0.05 && seasonRate >= 0.60) return { label: "⭐⭐⭐⭐ Strong Play", color: "#86efac" };
+  if (edge > 0.00 && seasonRate >= 0.55) return { label: "⭐⭐⭐ Lean Over", color: "#eab308" };
+  if (edge >= -0.05) return { label: "⚪ Neutral", color: "#9ca3af" };
+  return { label: "❌ PASS", color: "#ef4444" };
+}
+
+function render() {
+  const { tonight, playerStats, props, splits, player, metric, line, loading, error } = state;
+  const app = document.getElementById("app");
+
+  if (loading) {
+    app.innerHTML = `<div class="loading"><div style="font-size:32px">🏀</div><div style="color:#666;font-size:14px">Loading dashboard...</div></div>`;
+    return;
+  }
+
+  if (error) {
+    app.innerHTML = `<div class="error">⚠️ ${error}<br><br><span style="color:#666;font-size:12px">Make sure your Google Sheet is set to "Anyone with the link can view"</span></div>`;
+    return;
+  }
+
+  const lineNum = parseFloat(line) || 0;
+  const playerTonight = tonight.find(t => t.PLAYER_NAME === player) || {};
+  const allPlayerLogs = playerStats.filter(p => p.PLAYER_NAME === player).sort((a,b) => new Date(b.GAME_DATE)-new Date(a.GAME_DATE));
+  const gameLogs = [...allPlayerLogs].reverse().slice(-10);
+  const mostRecent = allPlayerLogs[0] || {};
+  const prop = props.find(p => p.PLAYER_NAME === player && p.METRIC === metric) || {};
+  const split = splits.find(s => s.PLAYER_NAME === player) || {};
+
+  const seasAvg = toNum(mostRecent[`Seas_${metric}`]);
+  const l10Avg  = toNum(mostRecent[`L10_${metric}`]);
+  const l5Avg   = toNum(mostRecent[`L5_${metric}`]);
+  const lastGame = toNum(mostRecent[metric]);
+  const h2hVal  = toNum(playerTonight[`H2H_${metric}`]);
+  const homeVal = toNum(split[`${metric}_Home`]);
+  const awayVal = toNum(split[`${metric}_Away`]);
+
+  const hitsL5     = lineNum ? allPlayerLogs.slice(0,5).filter(p => toNum(p[metric]) > lineNum).length : null;
+  const hitsL10    = lineNum ? allPlayerLogs.slice(0,10).filter(p => toNum(p[metric]) > lineNum).length : null;
+  const hitsSeason = lineNum ? allPlayerLogs.filter(p => toNum(p[metric]) > lineNum).length : null;
+  const seasonRate = hitsSeason !== null && allPlayerLogs.length > 0 ? hitsSeason / allPlayerLogs.length : null;
+
+  const overOdds  = prop.OVER_ODDS;
+  const underOdds = prop.UNDER_ODDS;
+  const overImpl  = overOdds  ? impliedProb(overOdds)  : null;
+  const underImpl = underOdds ? impliedProb(underOdds) : null;
+  const edge = seasonRate !== null && overImpl !== null ? seasonRate - overImpl : null;
+  const conf = getConfidence(seasonRate, overImpl, edge);
+
+  const maxLog = Math.max(...gameLogs.map(g => toNum(g[metric])), lineNum || 0, 1);
+
+  // Player options
+  const playerOptions = tonight.map(t => `<option value="${t.PLAYER_NAME}" ${t.PLAYER_NAME===player?"selected":""}>${t.PLAYER_NAME}</option>`).join("");
+  const metricOptions = METRICS.map(m => `<option value="${m}" ${m===metric?"selected":""}>${m}</option>`).join("");
+
+  // Bars
+  const bars = gameLogs.map(g => {
+    const val = toNum(g[metric]);
+    const h = Math.max(4, (val / maxLog) * 80);
+    const date = (g.GAME_DATE||"").slice(5);
+    return `<div class="bar-wrap">
+      <div class="bar-val">${val}</div>
+      <div class="bar" style="height:${h}px;background:${barColor(val,lineNum)}"></div>
+      <div class="bar-date">${date}</div>
+    </div>`;
+  }).join("");
+
+  // Avg cards
+  const avgs = [
+    {l:"Season",v:seasAvg},{l:"L10",v:l10Avg},{l:"L5",v:l5Avg},{l:"Last",v:lastGame}
+  ].map(a => `
+    <div class="avg-card" style="border:1px solid ${lineNum && a.v>=lineNum?"#22c55e44":lineNum?"#ef444433":"#333"}">
+      <div class="avg-label">${a.l}</div>
+      <div class="avg-val" style="color:${avgColor(a.v,lineNum)}">${a.v.toFixed(1)}</div>
+    </div>`).join("");
+
+  // H2H mini bars
+  let h2hBars = `<div class="no-data">1st Meeting</div>`;
+  if (h2hVal > 0) {
+    const mx = Math.max(h2hVal, seasAvg, 0.1);
+    h2hBars = [{l:"H2H",v:h2hVal,c:"#3b82f6"},{l:"Season",v:seasAvg,c:"#22c55e"}].map(b =>
+      `<div class="mini-bar-wrap">
+        <div class="mini-bar-val">${b.v.toFixed(1)}</div>
+        <div class="mini-bar" style="height:${Math.max(4,(b.v/mx)*50)}px;background:${b.c}"></div>
+        <div class="mini-bar-label">${b.l}</div>
+      </div>`).join("");
+  }
+
+  // H/R mini bars
+  let hrBars = `<div class="no-data">No data</div>`;
+  if (homeVal > 0 || awayVal > 0) {
+    const mx = Math.max(homeVal, awayVal, 0.1);
+    hrBars = [{l:"Home",v:homeVal,c:"#8b5cf6"},{l:"Away",v:awayVal,c:"#06b6d4"}].map(b =>
+      `<div class="mini-bar-wrap">
+        <div class="mini-bar-val">${b.v.toFixed(1)}</div>
+        <div class="mini-bar" style="height:${Math.max(4,(b.v/mx)*50)}px;background:${b.c}"></div>
+        <div class="mini-bar-label">${b.l}</div>
+      </div>`).join("");
+  }
+
+  // Stats strip
+  const statStrip = ["PTS","REB","AST","PRA","FG3M","STOCKS","DK_FP"].map(s =>
+    `<div class="stat-item"><div class="stat-label">${s}</div><div class="stat-val">${toNum(mostRecent[`Seas_${s}`]).toFixed(1)}</div></div>`
+  ).join("");
+
+  const lastUpdated = mostRecent.LAST_UPDATED || playerTonight.LAST_UPDATED || "—";
+
+  app.innerHTML = `
+    <div class="header">
+      <div class="header-title">🏀 NBA DFS Dashboard</div>
+      <select id="playerSelect">${playerOptions}</select>
+      <div class="row">
+        <select id="metricSelect">${metricOptions}</select>
+        <input type="number" id="lineInput" value="${line}" placeholder="Enter Line" step="0.5" />
+      </div>
+    </div>
+
+    <div class="stats-strip">
+      <div class="stats-strip-inner">${statStrip}</div>
+    </div>
+
+    <div class="section">
+      <div class="label">Game Log — ${metric}</div>
+      <div class="bar-chart">${bars}</div>
+      ${lineNum ? `<div class="line-indicator">Line: ${lineNum}</div>` : ""}
+    </div>
+
+    <div class="section">
+      <div class="label">Averages</div>
+      <div class="avg-cards">${avgs}</div>
+    </div>
+
+    <div class="section">
+      <div class="split-row">
+        <div class="split-card">
+          <div class="split-title">H2H vs ${playerTonight.TONIGHT_OPP||"—"}</div>
+          <div class="mini-bars">${h2hBars}</div>
+        </div>
+        <div class="split-card">
+          <div class="split-title">Home / Away</div>
+          <div class="mini-bars">${hrBars}</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="card">
+        <div class="card-title">⚡ Vegas</div>
+        <div class="vegas-row"><span class="vegas-key">${playerTonight.TEAM_ABBREVIATION||"—"} vs ${playerTonight.TONIGHT_OPP||"—"}</span><span style="color:#22c55e;font-size:12px;font-weight:600">${playerTonight.SPREAD?`Spread: ${playerTonight.SPREAD}`:"—"}</span></div>
+        <div class="vegas-row"><span class="vegas-key">Team Total</span><span class="vegas-val">${playerTonight.IMPLIED_TOTAL||"—"}</span></div>
+        <div class="vegas-row"><span class="vegas-key">Opp Total</span><span class="vegas-val">${playerTonight.OPP_IMPLIED_TOTAL||"—"}</span></div>
+        <div class="vegas-row"><span class="vegas-key">Game Total</span><span class="vegas-val">${playerTonight.GAME_TOTAL||"—"}</span></div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="card">
+        <div class="card-title">🎰 DK Props — ${metric}</div>
+        ${prop.DK_LINE
+          ? `<div class="dk-line">Line: ${prop.DK_LINE}</div>
+             <div class="dk-odds">
+               <span style="color:#22c55e;font-size:12px">${overOdds?`Over: ${fmtOdds(overOdds)} (${(overImpl*100).toFixed(1)}%)`:"—"}</span>
+               <span style="color:#ef4444;font-size:12px">${underOdds?`Under: ${fmtOdds(underOdds)} (${(underImpl*100).toFixed(1)}%)`:"—"}</span>
+             </div>`
+          : `<div class="no-data" style="margin-bottom:8px">No DK line available</div>`}
+        ${lineNum ? `
+          <div class="hit-row" style="border-top:1px solid #333;padding-top:8px;margin-top:4px">
+            <span class="hit-key">L5</span><span class="hit-val">${hitsL5} / 5</span>
+          </div>
+          <div class="hit-row"><span class="hit-key">L10</span><span class="hit-val">${hitsL10} / 10</span></div>
+          <div class="hit-row"><span class="hit-key">Season</span><span class="hit-val">${hitsSeason} / ${allPlayerLogs.length} (${seasonRate!==null?(seasonRate*100).toFixed(0):"—"}%)</span></div>
+        ` : ""}
+      </div>
+    </div>
+
+    ${conf ? `
+    <div class="section">
+      <div class="confidence" style="background:${conf.color}22;border:2px solid ${conf.color}">
+        <div class="conf-label" style="color:${conf.color}">${conf.label}</div>
+        ${edge!==null?`<div class="conf-edge">Edge: ${edge>0?"+":""}${(edge*100).toFixed(1)}% vs book</div>`:""}
+      </div>
+    </div>` : ""}
+
+    <div class="timestamp">Last Refreshed: ${lastUpdated}</div>
+  `;
+
+  // Event listeners
+  document.getElementById("playerSelect").addEventListener("change", e => {
+    state.player = e.target.value;
+    // Auto-populate DK line
+    const p = state.props.find(pr => pr.PLAYER_NAME === state.player && pr.METRIC === state.metric);
+    state.line = p?.DK_LINE || "";
+    render();
+  });
+  document.getElementById("metricSelect").addEventListener("change", e => {
+    state.metric = e.target.value;
+    const p = state.props.find(pr => pr.PLAYER_NAME === state.player && pr.METRIC === state.metric);
+    state.line = p?.DK_LINE || "";
+    render();
+  });
+  document.getElementById("lineInput").addEventListener("change", e => {
+    state.line = e.target.value;
+    render();
+  });
+}
+
+// Load data
+Promise.all([
+  fetchSheet("Tonights_Opponent"),
+  fetchSheet("Player_Stats"),
+  fetchSheet("DK_Player_Props").catch(() => []),
+  fetchSheet("Home_Away_Splits").catch(() => [])
+]).then(([tonight, playerStats, props, splits]) => {
+  state.tonight   = tonight;
+  state.playerStats = playerStats;
+  state.props     = props;
+  state.splits    = splits;
+  state.loading   = false;
+  if (tonight.length > 0) {
+    state.player = tonight[0].PLAYER_NAME || "";
+    const p = props.find(pr => pr.PLAYER_NAME === state.player && pr.METRIC === state.metric);
+    state.line = p?.DK_LINE || "";
+  }
+  render();
+}).catch(err => {
+  state.loading = false;
+  state.error = "Could not load data. Make sure your Google Sheet is set to 'Anyone with the link can view'.";
+  render();
+});
+</script>
+</body>
+</html>
