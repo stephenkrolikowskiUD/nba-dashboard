@@ -63,9 +63,10 @@
     .page.active { display: block; }
     /* Game log */
     .log-controls { padding: 12px 16px; }
-    .log-table-wrap { overflow-x: auto; padding: 0 16px 80px; }
+    .log-table-wrap { overflow-x: auto; overflow-y: auto; max-height: calc(100vh - 180px); padding: 0 16px 80px; }
     table { width: 100%; border-collapse: collapse; font-size: 12px; min-width: 500px; }
-    th { background: #1a1a1a; color: #eab308; font-weight: 700; padding: 8px 6px; text-align: center; border-bottom: 1px solid #333; white-space: nowrap; position: sticky; top: 0; z-index: 5; }
+    thead { position: sticky; top: 0; z-index: 5; }
+    th { background: #1a1a1a; color: #eab308; font-weight: 700; padding: 8px 6px; text-align: center; border-bottom: 1px solid #333; white-space: nowrap; }
     th.highlight { background: #2a1f00; }
     td { padding: 7px 6px; text-align: center; color: #fff; border-bottom: 1px solid #222; white-space: nowrap; }
     td.highlight { color: #eab308; font-weight: 700; }
