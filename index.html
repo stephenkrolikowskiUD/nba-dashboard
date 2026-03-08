@@ -25,7 +25,7 @@
     .bar-chart { display: flex; align-items: flex-end; gap: 3px; height: 90px; }
     .bar-wrap { flex: 1; display: flex; flex-direction: column; align-items: center; }
     .bar-val { font-size: 7px; color: #aaa; margin-bottom: 1px; }
-    .bar { width: 100%; border-radius: 3px 3px 0 0; }
+    .bar { width: 100%; border-radius: 3px 3px 0 0; transition: height 0.3s ease, background 0.3s ease; }
     .bar-date { font-size: 7px; color: #555; margin-top: 2px; }
     .line-indicator { border-top: 1px dashed #eab308; margin-top: 2px; padding-top: 2px; font-size: 9px; color: #eab308; }
     .avg-cards { display: flex; gap: 8px; }
@@ -73,6 +73,7 @@ const METRICS = ["PTS","REB","AST","PRA","PR","PA","RA","FG3M","STOCKS","DK_FP",
 let state = {
   tonight: [], playerStats: [], props: [], splits: [],
   player: "", metric: "PTS", line: "",
+  activeTab: "dashboard", oppFilter: "",
   loading: true, error: null
 };
 
@@ -100,7 +101,12 @@ const fmtOdds = o => o > 0 ? `+${o}` : `${o}`;
 const barColor = (val, line) => !line ? "#eab308" : val > line ? "#22c55e" : "#ef4444";
 const avgColor = (val, line) => !line ? "#eab308" : val >= line ? "#eab308" : "#f97316";
 
-function getConfidence(seasonRate, overImpl, edge) {
+function switchTab(tab) {
+  state.activeTab = tab;
+  render();
+}
+
+
   if (edge === null || seasonRate === null) return null;
   if (edge >= 0.10 && seasonRate >= 0.65) return { label: "⭐⭐⭐⭐⭐ SMASH", color: "#22c55e" };
   if (edge >= 0.05 && seasonRate >= 0.60) return { label: "⭐⭐⭐⭐ Strong Play", color: "#86efac" };
@@ -285,9 +291,10 @@ function render() {
       </div>
     </div>` : ""}
 
-    <div class="timestamp">Last Refreshed: ${lastUpdated}</div>
-    <div class="timestamp" style="color:#555;font-size:9px;padding-top:4px">Made by S. Krolikowski w/ Claude • 2026</div>
-  `;
+    <div class="tab-bar">
+      <button class="tab-btn active" id="tab-dashboard" onclick="switchTab('dashboard')">📊 Dashboard</button>
+      <button class="tab-btn" id="tab-gamelog" onclick="switchTab('gamelog')">📋 Game Log</button>
+    </div>
 
   // Event listeners
   document.getElementById("playerSelect").addEventListener("change", e => {
@@ -305,6 +312,11 @@ function render() {
   });
   document.getElementById("lineInput").addEventListener("change", e => {
     state.line = e.target.value;
+    render();
+  });
+  const oppEl = document.getElementById("oppFilter");
+  if (oppEl) oppEl.addEventListener("change", e => {
+    state.oppFilter = e.target.value;
     render();
   });
 }
