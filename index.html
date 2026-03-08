@@ -243,7 +243,7 @@ function render() {
 
   const filteredLogs = oppFilter ? allPlayerLogs.filter(g => g.GAME_OPP === oppFilter) : allPlayerLogs;
 
-  const defaultCols = ["MIN","PTS","REB","AST","FG3M","TOV"];
+      const defaultCols = ["MIN","PTS","REB","AST","FG3M","TOV","PRA","FGA","DK_FP"];
   const extraCol = !defaultCols.includes(metric) ? metric : null;
   const allCols = extraCol ? [...defaultCols, extraCol] : defaultCols;
 
