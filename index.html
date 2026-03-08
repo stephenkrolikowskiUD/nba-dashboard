@@ -185,7 +185,7 @@ function render() {
     const mx = Math.max(h2hVal, seasAvg, 0.1);
     h2hBars = [{l:"H2H",v:h2hVal,c:"#3b82f6"},{l:"Season",v:seasAvg,c:"#22c55e"}].map(b =>
       `<div class="mini-bar-wrap">
-        <div class="mini-bar" style="height:${Math.max(4,(b.v/mx)*50)}px;background:${b.c}"></div>
+        <div class="mini-bar" style="height:${Math.max(4,(b.v/mx)*60)}px;background:${b.c}"></div>
         <div class="mini-bar-label">${b.l}</div>
         <div class="mini-bar-val">${b.v.toFixed(1)}</div>
       </div>`).join("");
@@ -196,7 +196,7 @@ function render() {
     const mx = Math.max(homeVal, awayVal, 0.1);
     hrBars = [{l:"Home",v:homeVal,c:"#8b5cf6"},{l:"Away",v:awayVal,c:"#06b6d4"}].map(b =>
       `<div class="mini-bar-wrap">
-        <div class="mini-bar" style="height:${Math.max(4,(b.v/mx)*50)}px;background:${b.c}"></div>
+        <div class="mini-bar" style="height:${Math.max(4,(b.v/mx)*60)}px;background:${b.c}"></div>
         <div class="mini-bar-label">${b.l}</div>
         <div class="mini-bar-val">${b.v.toFixed(1)}</div>
       </div>`).join("");
@@ -238,11 +238,11 @@ function render() {
       <div class="split-row">
         <div class="split-card">
           <span class="split-title">H2H vs ${playerTonight.TONIGHT_OPP||"—"}</span>
-          <div class="mini-bars-container"><div class="mini-bars">${h2hBars}</div></div>
+          <div class="mini-bars-container">${h2hBars}</div>
         </div>
         <div class="split-card">
           <span class="split-title">Home / Away</span>
-          <div class="mini-bars-container"><div class="mini-bars">${hrBars}</div></div>
+          <div class="mini-bars-container">${hrBars}</div>
         </div>
       </div>
     </div>
