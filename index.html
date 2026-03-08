@@ -65,12 +65,13 @@
     .log-controls { padding: 12px 16px; }
     .log-table-wrap { overflow-x: auto; padding: 0 16px 80px; }
     table { width: 100%; border-collapse: collapse; font-size: 12px; min-width: 500px; }
-    th { background: #1a1a1a; color: #eab308; font-weight: 700; padding: 8px 6px; text-align: center; border-bottom: 1px solid #333; white-space: nowrap; }
+    th { background: #1a1a1a; color: #eab308; font-weight: 700; padding: 8px 6px; text-align: center; border-bottom: 1px solid #333; white-space: nowrap; position: sticky; top: 0; z-index: 5; }
     th.highlight { background: #2a1f00; }
     td { padding: 7px 6px; text-align: center; color: #fff; border-bottom: 1px solid #222; white-space: nowrap; }
     td.highlight { color: #eab308; font-weight: 700; }
     td.hit { color: #22c55e; font-weight: 700; }
     td.miss { color: #ef4444; font-weight: 700; }
+    td.push { color: #9ca3af; font-weight: 700; }
     tr.win td { background: #0f2a1a; }
     tr.loss td { background: #2a0f0f; }
     .wl-win { color: #22c55e; font-weight: 700; }
@@ -256,7 +257,11 @@ function render() {
       const val = toNum(g[col]);
       const isMetric = col === metric;
       let cls = isMetric ? "highlight" : "";
-      if (isMetric && lineNum) cls = val > lineNum ? "hit" : "miss";
+      if (isMetric && lineNum) {
+        if (val > lineNum) cls = "hit";
+        else if (val === lineNum) cls = "push";
+        else cls = "miss";
+      }
       return `<td class="${cls}">${val}</td>`;
     }).join("");
     return `<tr class="${isWin?"win":"loss"}">
