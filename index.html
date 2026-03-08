@@ -237,12 +237,12 @@ function render() {
     <div class="section">
       <div class="split-row">
         <div class="split-card">
-          <div class="split-title">H2H vs ${playerTonight.TONIGHT_OPP||"—"}</div>
-          <div class="mini-bars">${h2hBars}</div>
+          <span class="split-title">H2H vs ${playerTonight.TONIGHT_OPP||"—"}</span>
+          <div class="mini-bars-container"><div class="mini-bars">${h2hBars}</div></div>
         </div>
         <div class="split-card">
-          <div class="split-title">Home / Away</div>
-          <div class="mini-bars">${hrBars}</div>
+          <span class="split-title">Home / Away</span>
+          <div class="mini-bars-container"><div class="mini-bars">${hrBars}</div></div>
         </div>
       </div>
     </div>
