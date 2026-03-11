@@ -10,7 +10,10 @@
     body { background: #111; color: #fff; font-family: system-ui, -apple-system, sans-serif; max-width: 480px; margin: 0 auto; padding-bottom: 60px; }
     select, input { background: #2a2a2a; color: #fff; border: 1px solid #444; border-radius: 8px; padding: 8px 10px; font-size: 14px; width: 100%; }
     .header { background: #1a1a1a; padding: 12px 16px; border-bottom: 1px solid #333; position: sticky; top: 0; z-index: 10; }
-    .header-title { color: #eab308; font-weight: 700; font-size: 13px; margin-bottom: 8px; }
+    .header-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+    .header-title { color: #eab308; font-weight: 700; font-size: 13px; }
+    .refresh-btn { background: none; border: 1px solid #444; border-radius: 6px; color: #9ca3af; font-size: 11px; padding: 4px 10px; cursor: pointer; }
+    .refresh-btn:active { background: #333; }
     .row { display: flex; gap: 8px; margin-top: 8px; }
     .row select, .row input { flex: 1; }
     .section { padding: 14px 16px 0; }
@@ -51,38 +54,40 @@
     .confidence { border-radius: 10px; padding: 14px; text-align: center; }
     .conf-label { font-size: 20px; font-weight: 800; }
     .conf-edge { color: #d1d5db; font-size: 11px; margin-top: 4px; }
-    .timestamp { text-align: center; padding: 16px; color: #9ca3af; font-size: 10px; }
+    .timestamp { text-align: center; padding: 8px 16px; color: #9ca3af; font-size: 10px; }
     .loading { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; gap: 16px; }
+    .spinner { width: 24px; height: 24px; border: 3px solid #333; border-top-color: #eab308; border-radius: 50%; animation: spin 0.8s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
     .error { padding: 24px; color: #ef4444; font-size: 14px; }
     .no-data { color: #9ca3af; font-size: 11px; }
-    /* Tab bar */
     .tab-bar { position: fixed; bottom: 0; left: 0; right: 0; max-width: 480px; margin: 0 auto; background: #1a1a1a; border-top: 1px solid #333; display: flex; z-index: 20; }
     .tab-btn { flex: 1; padding: 12px; text-align: center; font-size: 12px; font-weight: 600; color: #9ca3af; cursor: pointer; border: none; background: none; }
     .tab-btn.active { color: #eab308; border-top: 2px solid #eab308; }
     .page { display: none; }
     .page.active { display: block; }
-    /* Game log */
     .log-controls { padding: 12px 16px; }
     .log-table-wrap { overflow-x: auto; overflow-y: auto; max-height: calc(100vh - 180px); padding: 0 16px 80px; }
     table { width: 100%; border-collapse: collapse; font-size: 12px; min-width: 500px; }
     thead { position: sticky; top: 0; z-index: 5; }
     th { background: #1a1a1a; color: #eab308; font-weight: 700; padding: 8px 6px; text-align: center; border-bottom: 1px solid #333; white-space: nowrap; }
-    th.highlight { background: #2a1f00; }
+    th.hl { background: #2a1f00; }
     td { padding: 7px 6px; text-align: center; color: #fff; border-bottom: 1px solid #222; white-space: nowrap; }
-    td.highlight { color: #eab308; font-weight: 700; }
+    td.hl { color: #eab308; font-weight: 700; }
     td.hit { color: #22c55e; font-weight: 700; }
     td.miss { color: #ef4444; font-weight: 700; }
     td.push { color: #9ca3af; font-weight: 700; }
     tr.win td { background: #0f2a1a; }
     tr.loss td { background: #2a0f0f; }
-    .wl-win { color: #22c55e; font-weight: 700; }
-    .wl-loss { color: #ef4444; font-weight: 700; }
+    .wl-w { color: #22c55e; font-weight: 700; }
+    .wl-l { color: #ef4444; font-weight: 700; }
+    .bet-card { margin-bottom: 8px; cursor: pointer; border-left: 4px solid; }
+    .bet-card:active { opacity: 0.7; }
   </style>
 </head>
 <body>
 <div id="app">
   <div class="loading">
-    <div style="font-size:32px">🏀</div>
+    <div class="spinner"></div>
     <div style="color:#666;font-size:14px">Loading dashboard...</div>
   </div>
 </div>
@@ -91,26 +96,22 @@
 const SHEET_ID = "12gBgVx_RCsIytjZHjfZWgLtG-R-zcPbYYE-CVFd4EDw";
 const METRICS = ["PTS","REB","AST","PRA","PR","PA","RA","FG3M","STOCKS","DK_FP","FPPM","USAGE_PPM"];
 
+// --- STATE ---
 let state = {
   tonight: [], playerStats: [], props: [], splits: [],
   player: "", metric: "PTS", line: "",
   activeTab: "dashboard", oppFilter: "",
-  loading: true, error: null
+  loading: true, error: null, loadedAt: null
 };
 
-const fetchSheet = (name) => new Promise((resolve, reject) => {
-  const url = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(name)}`;
-  fetch(url).then(r => {
-    if (!r.ok) throw new Error(`Failed: ${name}`);
-    return r.text();
-  }).then(text => {
-    Papa.parse(text, {
-      header: true, skipEmptyLines: true, dynamicTyping: true,
-      complete: r => resolve(r.data), error: reject
-    });
-  }).catch(reject);
-});
+// --- CACHES (invalidated on player/metric change) ---
+let cache = {
+  player: null,
+  sortedLogs: null,       // all logs for current player, sorted desc
+  bestBets: null,         // computed once on load
+};
 
+// --- HELPERS ---
 const toNum = v => parseFloat(v) || 0;
 
 const impliedProb = (odds) => {
@@ -120,41 +121,171 @@ const impliedProb = (odds) => {
 };
 
 const fmtOdds = o => o > 0 ? `+${o}` : `${o}`;
-const barColor = (val, line) => !line ? "#eab308" : val > line ? "#22c55e" : "#ef4444";
+const barColor = (val, line) => !line ? "#eab308" : val > line ? "#22c55e" : val === line ? "#9ca3af" : "#ef4444";
 const avgColor = (val, line) => !line ? "#eab308" : val >= line ? "#eab308" : "#f97316";
+const escHtml = s => s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 
+// --- CONFIDENCE ---
+const CONF_LEVELS = [
+  { min_edge: 0.10, min_rate: 0.65, label: "SMASH",       stars: 5, color: "#22c55e" },
+  { min_edge: 0.05, min_rate: 0.60, label: "Strong Play",  stars: 4, color: "#86efac" },
+  { min_edge: 0.00, min_rate: 0.55, label: "Lean Over",    stars: 3, color: "#eab308" },
+  { min_edge: -0.05, min_rate: 0,   label: "Neutral",      stars: 0, color: "#9ca3af" },
+];
+
+function getConfidence(seasonRate, overImpl, edge) {
+  if (edge === null || seasonRate === null) return null;
+  for (const lvl of CONF_LEVELS) {
+    if (edge >= lvl.min_edge && seasonRate >= lvl.min_rate) {
+      const starStr = lvl.stars > 0 ? "⭐".repeat(lvl.stars) + " " : "⚪ ";
+      return { label: starStr + lvl.label, stars: lvl.stars, color: lvl.color };
+    }
+  }
+  return { label: "❌ PASS", stars: -1, color: "#ef4444" };
+}
+
+// --- DATA FETCHING ---
+const fetchSheet = (name) => new Promise((resolve, reject) => {
+  const url = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(name)}`;
+  fetch(url).then(r => {
+    if (!r.ok) throw new Error(`Sheet "${name}" returned ${r.status}`);
+    return r.text();
+  }).then(text => {
+    Papa.parse(text, {
+      header: true, skipEmptyLines: true, dynamicTyping: true,
+      complete: r => resolve(r.data), error: reject
+    });
+  }).catch(reject);
+});
+
+function loadAllData() {
+  state.loading = true;
+  state.error = null;
+  cache.bestBets = null;
+  cache.player = null;
+  cache.sortedLogs = null;
+  render();
+
+  Promise.all([
+    fetchSheet("Tonights_Opponent").catch(e => { console.error("Tonights_Opponent:", e); return null; }),
+    fetchSheet("Player_Stats").catch(e => { console.error("Player_Stats:", e); return null; }),
+    fetchSheet("DK_Player_Props").catch(() => []),
+    fetchSheet("Home_Away_Splits").catch(() => [])
+  ]).then(([tonight, playerStats, props, splits]) => {
+    // Validate critical sheets
+    if (!tonight || !playerStats) {
+      state.error = !tonight && !playerStats
+        ? "Could not load Tonights_Opponent or Player_Stats sheets."
+        : !tonight ? "Could not load Tonights_Opponent sheet."
+        : "Could not load Player_Stats sheet.";
+      state.loading = false;
+      render();
+      return;
+    }
+
+    state.tonight = tonight;
+    state.playerStats = playerStats;
+    state.props = props || [];
+    state.splits = splits || [];
+    state.loading = false;
+    state.loadedAt = new Date().toLocaleTimeString();
+
+    if (tonight.length > 0 && !state.player) {
+      state.player = tonight[0].PLAYER_NAME || "";
+      const p = state.props.find(pr => pr.PLAYER_NAME === state.player && pr.METRIC === state.metric);
+      state.line = p?.DK_LINE || "";
+    }
+
+    // Pre-compute best bets once
+    computeBestBets();
+    render();
+  }).catch(err => {
+    state.loading = false;
+    state.error = "Could not load data. Make sure your Google Sheet is set to 'Anyone with the link can view'.";
+    render();
+  });
+}
+
+// --- BEST BETS (computed once on load) ---
+function computeBestBets() {
+  if (!state.props.length || !state.playerStats.length) {
+    cache.bestBets = [];
+    return;
+  }
+
+  // Pre-group logs by player for O(1) lookups
+  const logsByPlayer = {};
+  state.playerStats.forEach(p => {
+    const name = p.PLAYER_NAME;
+    if (!logsByPlayer[name]) logsByPlayer[name] = [];
+    logsByPlayer[name].push(p);
+  });
+
+  const plays = [];
+  state.props.forEach(prop => {
+    if (!prop.DK_LINE || !prop.OVER_ODDS) return;
+    const lineN = parseFloat(prop.DK_LINE);
+    const logs = logsByPlayer[prop.PLAYER_NAME];
+    if (!logs || logs.length < 5) return;
+
+    const hits = logs.filter(p => toNum(p[prop.METRIC]) > lineN).length;
+    const sRate = hits / logs.length;
+    const oImpl = impliedProb(prop.OVER_ODDS);
+    const edg = sRate - oImpl;
+    const cnf = getConfidence(sRate, oImpl, edg);
+
+    if (cnf && cnf.stars >= 4) {
+      plays.push({
+        player: prop.PLAYER_NAME,
+        metric: prop.METRIC,
+        line: lineN,
+        odds: prop.OVER_ODDS,
+        edge: edg,
+        conf: cnf
+      });
+    }
+  });
+
+  plays.sort((a, b) => b.edge - a.edge);
+  cache.bestBets = plays;
+}
+
+// --- PLAYER LOG CACHE ---
+function getPlayerLogs(playerName) {
+  if (cache.player === playerName && cache.sortedLogs) return cache.sortedLogs;
+  cache.player = playerName;
+  cache.sortedLogs = state.playerStats
+    .filter(p => p.PLAYER_NAME === playerName)
+    .sort((a, b) => (b.GAME_DATE || "").localeCompare(a.GAME_DATE || ""));
+  return cache.sortedLogs;
+}
+
+// --- TAB SWITCHING ---
 function switchTab(tab) {
   state.activeTab = tab;
   render();
 }
 
-function getConfidence(seasonRate, overImpl, edge) {
-  if (edge === null || seasonRate === null) return null;
-  if (edge >= 0.10 && seasonRate >= 0.65) return { label: "⭐⭐⭐⭐⭐ SMASH", color: "#22c55e" };
-  if (edge >= 0.05 && seasonRate >= 0.60) return { label: "⭐⭐⭐⭐ Strong Play", color: "#86efac" };
-  if (edge > 0.00 && seasonRate >= 0.55) return { label: "⭐⭐⭐ Lean Over", color: "#eab308" };
-  if (edge >= -0.05) return { label: "⚪ Neutral", color: "#9ca3af" };
-  return { label: "❌ PASS", color: "#ef4444" };
-}
-
+// --- RENDER ---
 function render() {
-  const { tonight, playerStats, props, splits, player, metric, line, activeTab, oppFilter } = state;
   const app = document.getElementById("app");
 
   if (state.loading) {
-    app.innerHTML = `<div class="loading"><div style="font-size:32px">🏀</div><div style="color:#666;font-size:14px">Loading dashboard...</div></div>`;
+    app.innerHTML = `<div class="loading"><div class="spinner"></div><div style="color:#666;font-size:14px">Loading dashboard...</div></div>`;
     return;
   }
 
   if (state.error) {
-    app.innerHTML = `<div class="error">⚠️ ${state.error}<br><br><span style="color:#666;font-size:12px">Make sure your Google Sheet is set to "Anyone with the link can view"</span></div>`;
+    app.innerHTML = `<div class="error">⚠️ ${escHtml(state.error)}<br><br><span style="color:#666;font-size:12px">Make sure your Google Sheet is set to "Anyone with the link can view"</span><br><br><button class="refresh-btn" id="retryBtn">Retry</button></div>`;
+    document.getElementById("retryBtn")?.addEventListener("click", loadAllData);
     return;
   }
 
+  const { tonight, props, splits, player, metric, line, activeTab, oppFilter } = state;
   const lineNum = parseFloat(line) || 0;
   const playerTonight = tonight.find(t => t.PLAYER_NAME === player) || {};
-  const allPlayerLogs = playerStats.filter(p => p.PLAYER_NAME === player).sort((a,b) => new Date(b.GAME_DATE)-new Date(a.GAME_DATE));
-  const gameLogs = [...allPlayerLogs].reverse().slice(-10);
+  const allPlayerLogs = getPlayerLogs(player);
+  const gameLogs = allPlayerLogs.slice().reverse().slice(-10);
   const mostRecent = allPlayerLogs[0] || {};
   const prop = props.find(p => p.PLAYER_NAME === player && p.METRIC === metric) || {};
   const split = splits.find(s => s.PLAYER_NAME === player) || {};
@@ -170,6 +301,7 @@ function render() {
   const hitsL5     = lineNum ? allPlayerLogs.slice(0,5).filter(p => toNum(p[metric]) > lineNum).length : null;
   const hitsL10    = lineNum ? allPlayerLogs.slice(0,10).filter(p => toNum(p[metric]) > lineNum).length : null;
   const hitsSeason = lineNum ? allPlayerLogs.filter(p => toNum(p[metric]) > lineNum).length : null;
+  const pushSeason = lineNum ? allPlayerLogs.filter(p => toNum(p[metric]) === lineNum).length : null;
   const seasonRate = hitsSeason !== null && allPlayerLogs.length > 0 ? hitsSeason / allPlayerLogs.length : null;
 
   const overOdds  = prop.OVER_ODDS;
@@ -183,8 +315,10 @@ function render() {
 
   // Player dropdown
   const sortedPlayers = [...tonight].sort((a,b) => (a.PLAYER_NAME||"").localeCompare(b.PLAYER_NAME||""));
-  const playerOptions = sortedPlayers.map(t => `<option value="${t.PLAYER_NAME}" ${t.PLAYER_NAME===player?"selected":""}>${t.PLAYER_NAME} (${t.TEAM_ABBREVIATION||""})</option>`).join("");
-  const metricOptions = METRICS.map(m => `<option value="${m}" ${m===metric?"selected":""}>${m}</option>`).join("");
+  const playerOpts = sortedPlayers.map(t =>
+    `<option value="${escHtml(t.PLAYER_NAME||"")}" ${t.PLAYER_NAME===player?"selected":""}>${escHtml(t.PLAYER_NAME||"")} (${escHtml(t.TEAM_ABBREVIATION||"")})</option>`
+  ).join("");
+  const metricOpts = METRICS.map(m => `<option value="${m}" ${m===metric?"selected":""}>${m}</option>`).join("");
 
   // Game log bars
   const bars = gameLogs.map(g => {
@@ -238,55 +372,84 @@ function render() {
 
   const lastUpdated = mostRecent.LAST_UPDATED || playerTonight.LAST_UPDATED || "—";
 
-  // Game log table
-  const opponents = [...new Set(allPlayerLogs.map(g => g.GAME_OPP).filter(Boolean))].sort();
-  const oppOptions = `<option value="">All Opponents</option>` + opponents.map(o =>
-    `<option value="${o}" ${oppFilter===o?"selected":""}>${o}</option>`).join("");
+  // --- GAME LOG TABLE (only build if on that tab) ---
+  let gameLogHTML = "";
+  if (activeTab === "gamelog") {
+    const opponents = [...new Set(allPlayerLogs.map(g => g.GAME_OPP).filter(Boolean))].sort();
+    const oppOpts = `<option value="">All Opponents</option>` + opponents.map(o =>
+      `<option value="${escHtml(o)}" ${oppFilter===o?"selected":""}>${escHtml(o)}</option>`).join("");
 
-  const filteredLogs = oppFilter ? allPlayerLogs.filter(g => g.GAME_OPP === oppFilter) : allPlayerLogs;
+    const filteredLogs = oppFilter ? allPlayerLogs.filter(g => g.GAME_OPP === oppFilter) : allPlayerLogs;
+    const defaultCols = ["MIN","PTS","REB","AST","FG3M","TOV","PRA","FGA","DK_FP"];
+    const extraCol = !defaultCols.includes(metric) ? metric : null;
+    const allCols = extraCol ? [...defaultCols, extraCol] : defaultCols;
 
-      const defaultCols = ["MIN","PTS","REB","AST","FG3M","TOV","PRA","FGA","DK_FP"];
-  const extraCol = !defaultCols.includes(metric) ? metric : null;
-  const allCols = extraCol ? [...defaultCols, extraCol] : defaultCols;
-
-  const tableHeaders = allCols.map(c =>
-    `<th class="${c===metric?"highlight":""}">${c}</th>`).join("");
-
-  const tableRows = filteredLogs.map(g => {
-    const isWin = (g.WL||"").toUpperCase() === "W";
-    const cells = allCols.map(col => {
-      const val = toNum(g[col]);
-      const isMetric = col === metric;
-      let cls = isMetric ? "highlight" : "";
-      if (isMetric && lineNum) {
-        if (val > lineNum) cls = "hit";
-        else if (val === lineNum) cls = "push";
-        else cls = "miss";
-      }
-      return `<td class="${cls}">${val}</td>`;
+    const ths = allCols.map(c => `<th class="${c===metric?"hl":""}">${c}</th>`).join("");
+    const trs = filteredLogs.map(g => {
+      const isWin = (g.WL||"").toUpperCase() === "W";
+      const cells = allCols.map(col => {
+        const val = toNum(g[col]);
+        const isM = col === metric;
+        let cls = isM ? "hl" : "";
+        if (isM && lineNum) {
+          cls = val > lineNum ? "hit" : val === lineNum ? "push" : "miss";
+        }
+        return `<td class="${cls}">${val}</td>`;
+      }).join("");
+      return `<tr class="${isWin?"win":"loss"}">
+        <td>${(g.GAME_DATE||"").slice(5)}</td>
+        <td>${escHtml(g.GAME_OPP||"—")}</td>
+        <td class="${isWin?"wl-w":"wl-l"}">${g.WL||"—"}</td>
+        ${cells}
+      </tr>`;
     }).join("");
-    return `<tr class="${isWin?"win":"loss"}">
-      <td>${(g.GAME_DATE||"").slice(5)}</td>
-      <td>${g.GAME_OPP||"—"}</td>
-      <td class="${isWin?"wl-win":"wl-loss"}">${g.WL||"—"}</td>
-      ${cells}
-    </tr>`;
-  }).join("");
 
+    gameLogHTML = `
+      <div class="log-controls"><select id="oppFilter">${oppOpts}</select></div>
+      <div class="log-table-wrap">
+        <table><thead><tr><th>DATE</th><th>OPP</th><th>W/L</th>${ths}</tr></thead>
+        <tbody>${trs}</tbody></table>
+      </div>`;
+  }
+
+  // --- BEST BETS (only build if on that tab) ---
+  let bestBetsHTML = "";
+  if (activeTab === "bestbets") {
+    const bets = cache.bestBets || [];
+    if (bets.length === 0) {
+      bestBetsHTML = `<div class="section"><div class="no-data" style="padding:20px;text-align:center;">No 4+ Star plays found at current lines.</div></div>`;
+    } else {
+      bestBetsHTML = `<div class="section"><div class="label">Top Plays (4+ Stars)</div>` +
+        bets.map((play, i) => `
+        <div class="bet-card card" style="border-left-color:${play.conf.color}" data-bet-idx="${i}">
+          <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
+            <span style="font-weight:700;color:#fff;">${escHtml(play.player)}</span>
+            <span style="color:#eab308;font-weight:700;">Over ${play.line} ${play.metric}</span>
+          </div>
+          <div style="display:flex;justify-content:space-between;font-size:11px;color:#9ca3af;">
+            <span>Odds: ${fmtOdds(play.odds)}</span>
+            <span style="color:${play.conf.color}">${play.conf.label} (+${(play.edge*100).toFixed(1)}% Edge)</span>
+          </div>
+        </div>`).join("") + `</div>`;
+    }
+  }
+
+  // --- ASSEMBLE ---
   app.innerHTML = `
     <div class="header">
-      <div class="header-title">🏀 NBA DFS Dashboard</div>
-      <select id="playerSelect">${playerOptions}</select>
+      <div class="header-top">
+        <div class="header-title">🏀 NBA DFS Dashboard</div>
+        <button class="refresh-btn" id="refreshBtn">↻ Refresh</button>
+      </div>
+      <select id="playerSelect">${playerOpts}</select>
       <div class="row">
-        <select id="metricSelect">${metricOptions}</select>
+        <select id="metricSelect">${metricOpts}</select>
         <input type="number" id="lineInput" value="${line}" placeholder="Enter Line" step="0.5" />
       </div>
     </div>
 
     <div id="page-dashboard" class="page ${activeTab==="dashboard"?"active":""}">
-      <div class="stats-strip">
-        <div class="stats-strip-inner">${statStrip}</div>
-      </div>
+      <div class="stats-strip"><div class="stats-strip-inner">${statStrip}</div></div>
       <div class="section">
         <div class="label">Game Log — ${metric}</div>
         <div class="bar-chart">${bars}</div>
@@ -299,7 +462,7 @@ function render() {
       <div class="section">
         <div class="split-row">
           <div class="split-card">
-            <span class="split-title">H2H vs ${playerTonight.TONIGHT_OPP||"—"}</span>
+            <span class="split-title">H2H vs ${escHtml(playerTonight.TONIGHT_OPP||"—")}</span>
             <div class="mini-bars-container">${h2hBars}</div>
           </div>
           <div class="split-card">
@@ -312,7 +475,7 @@ function render() {
         <div class="card">
           <div class="card-title">⚡ Vegas</div>
           <div class="vegas-row">
-            <span class="vegas-key">${playerTonight.TEAM_ABBREVIATION||"—"} vs ${playerTonight.TONIGHT_OPP||"—"}</span>
+            <span class="vegas-key">${escHtml(playerTonight.TEAM_ABBREVIATION||"—")} vs ${escHtml(playerTonight.TONIGHT_OPP||"—")}</span>
             <span style="color:#22c55e;font-size:12px;font-weight:600">${playerTonight.SPREAD?`Spread: ${playerTonight.SPREAD}`:"—"}</span>
           </div>
           <div class="vegas-row"><span class="vegas-key">Team Total</span><span class="vegas-val">${playerTonight.IMPLIED_TOTAL||"—"}</span></div>
@@ -335,7 +498,7 @@ function render() {
               <span class="hit-key">L5</span><span class="hit-val">${hitsL5} / 5</span>
             </div>
             <div class="hit-row"><span class="hit-key">L10</span><span class="hit-val">${hitsL10} / 10</span></div>
-            <div class="hit-row"><span class="hit-key">Season</span><span class="hit-val">${hitsSeason} / ${allPlayerLogs.length} (${seasonRate!==null?(seasonRate*100).toFixed(0):"—"}%)</span></div>
+            <div class="hit-row"><span class="hit-key">Season</span><span class="hit-val">${hitsSeason} / ${allPlayerLogs.length} (${seasonRate!==null?(seasonRate*100).toFixed(0):"—"}%)${pushSeason > 0 ? ` · ${pushSeason} push` : ""}</span></div>
           ` : ""}
         </div>
       </div>
@@ -346,34 +509,26 @@ function render() {
           ${edge!==null?`<div class="conf-edge">Edge: ${edge>0?"+":""}${(edge*100).toFixed(1)}% vs book</div>`:""}
         </div>
       </div>` : ""}
-      <div class="timestamp">Last Refreshed: ${lastUpdated}</div>
-      <div class="timestamp" style="color:#555;font-size:9px;padding-top:4px">Made by S. Krolikowski w/ Claude • 2026</div>
+      <div class="timestamp">Data: ${escHtml(lastUpdated)}${state.loadedAt ? ` · Loaded: ${state.loadedAt}` : ""}</div>
+      <div class="timestamp" style="color:#555;font-size:9px;padding-top:0">Made by S. Krolikowski w/ Claude • 2026</div>
     </div>
 
     <div id="page-gamelog" class="page ${activeTab==="gamelog"?"active":""}">
-      <div class="log-controls">
-        <select id="oppFilter">${oppOptions}</select>
-      </div>
-      <div class="log-table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>DATE</th><th>OPP</th><th>W/L</th>
-              ${tableHeaders}
-            </tr>
-          </thead>
-          <tbody>${tableRows}</tbody>
-        </table>
-      </div>
+      ${gameLogHTML}
+    </div>
+
+    <div id="page-bestbets" class="page ${activeTab==="bestbets"?"active":""}">
+      ${bestBetsHTML}
     </div>
 
     <div class="tab-bar">
-      <button class="tab-btn ${activeTab==="dashboard"?"active":""}" onclick="switchTab('dashboard')">📊 Dashboard</button>
-      <button class="tab-btn ${activeTab==="gamelog"?"active":""}" onclick="switchTab('gamelog')">📋 Game Log</button>
+      <button class="tab-btn ${activeTab==="dashboard"?"active":""}" data-tab="dashboard">📊 Dashboard</button>
+      <button class="tab-btn ${activeTab==="gamelog"?"active":""}" data-tab="gamelog">📋 Game Log</button>
+      <button class="tab-btn ${activeTab==="bestbets"?"active":""}" data-tab="bestbets">🔥 Best Bets</button>
     </div>
   `;
 
-  // Event listeners
+  // --- EVENT LISTENERS (delegated) ---
   document.getElementById("playerSelect").addEventListener("change", e => {
     state.player = e.target.value;
     state.oppFilter = "";
@@ -381,46 +536,50 @@ function render() {
     state.line = p?.DK_LINE || "";
     render();
   });
+
   document.getElementById("metricSelect").addEventListener("change", e => {
     state.metric = e.target.value;
     const p = state.props.find(pr => pr.PLAYER_NAME === state.player && pr.METRIC === state.metric);
     state.line = p?.DK_LINE || "";
     render();
   });
+
   document.getElementById("lineInput").addEventListener("change", e => {
     state.line = e.target.value;
     render();
   });
+
+  document.getElementById("refreshBtn")?.addEventListener("click", loadAllData);
+
   const oppEl = document.getElementById("oppFilter");
   if (oppEl) oppEl.addEventListener("change", e => {
     state.oppFilter = e.target.value;
     render();
   });
+
+  // Delegated tab clicks
+  document.querySelector(".tab-bar")?.addEventListener("click", e => {
+    const tab = e.target.closest("[data-tab]")?.dataset.tab;
+    if (tab) switchTab(tab);
+  });
+
+  // Delegated best bet card clicks (no inline JS)
+  document.querySelectorAll(".bet-card[data-bet-idx]").forEach(card => {
+    card.addEventListener("click", () => {
+      const idx = parseInt(card.dataset.betIdx);
+      const play = cache.bestBets?.[idx];
+      if (play) {
+        state.player = play.player;
+        state.metric = play.metric;
+        state.line = String(play.line);
+        switchTab("dashboard");
+      }
+    });
+  });
 }
 
-// Load all data
-Promise.all([
-  fetchSheet("Tonights_Opponent"),
-  fetchSheet("Player_Stats"),
-  fetchSheet("DK_Player_Props").catch(() => []),
-  fetchSheet("Home_Away_Splits").catch(() => [])
-]).then(([tonight, playerStats, props, splits]) => {
-  state.tonight     = tonight;
-  state.playerStats = playerStats;
-  state.props       = props;
-  state.splits      = splits;
-  state.loading     = false;
-  if (tonight.length > 0) {
-    state.player = tonight[0].PLAYER_NAME || "";
-    const p = props.find(pr => pr.PLAYER_NAME === state.player && pr.METRIC === state.metric);
-    state.line = p?.DK_LINE || "";
-  }
-  render();
-}).catch(err => {
-  state.loading = false;
-  state.error = "Could not load data. Make sure your Google Sheet is set to 'Anyone with the link can view'.";
-  render();
-});
+// --- INIT ---
+loadAllData();
 </script>
 </body>
 </html>
