@@ -56,7 +56,7 @@
     .conf-edge { color: #d1d5db; font-size: 11px; margin-top: 4px; }
     .timestamp { text-align: center; padding: 8px 16px; color: #9ca3af; font-size: 10px; }
     .loading { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; gap: 16px; }
-    @@keyframes bounce {0%, 100% { transform: translateY(0); }50% { transform: translateY(-12px); }}
+    @keyframes bounce {0%, 100% { transform: translateY(0); }50% { transform: translateY(-12px); }}
     .error { padding: 24px; color: #ef4444; font-size: 14px; }
     .no-data { color: #9ca3af; font-size: 11px; }
     .tab-bar { position: fixed; bottom: 0; left: 0; right: 0; max-width: 480px; margin: 0 auto; background: #1a1a1a; border-top: 1px solid #333; display: flex; z-index: 20; }
@@ -270,7 +270,7 @@ function render() {
   const app = document.getElementById("app");
 
   if (state.loading) {
-    app.innerHTML = `<div class="loading"><div class="spinner"></div><div style="color:#666;font-size:14px">Loading dashboard...</div></div>`;
+    app.innerHTML = `<div class="loading"><div style="font-size:32px;animation:bounce 0.8s ease-in-out infinite">🏀</div><div style="color:#666;font-size:14px">Loading dashboard...</div></div>`;
     return;
   }
 
