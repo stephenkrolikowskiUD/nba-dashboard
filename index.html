@@ -59,7 +59,7 @@
     @keyframes bounce {0%, 100% { transform: translateY(0); }50% { transform: translateY(-12px); }}
     .error { padding: 24px; color: #ef4444; font-size: 14px; }
     .no-data { color: #9ca3af; font-size: 11px; }
-    .tab-bar { position: fixed; bottom: 0; left: 0; right: 0; max-width: 480px; margin: 0 auto; background: #1a1a1a; border-top: 1px solid #333; display: flex; z-index: 20; }
+    .tab-bar { position: fixed; bottom: 0; left: 0; right: 0; max-width: 480px; margin: 0 auto; background: #1a1a1a; border-top: 1px solid #333; display: flex; z-index: 20; padding-bottom: env(safe-area-inset-bottom); }
     .tab-btn { flex: 1; padding: 12px; text-align: center; font-size: 12px; font-weight: 600; color: #9ca3af; cursor: pointer; border: none; background: none; }
     .tab-btn.active { color: #eab308; border-top: 2px solid #eab308; }
     .page { display: none; }
@@ -72,7 +72,7 @@
     th.hl { background: #2a1f00; }
     td { padding: 7px 6px; text-align: center; color: #fff; border-bottom: 1px solid #222; white-space: nowrap; }
     td.hl { color: #eab308; font-weight: 700; }
-    td.hit { color: #22c55e; font-weight: 700; }  
+    td.hit { color: #22c55e; font-weight: 700; }
     td.miss { color: #ef4444; font-weight: 700; }
     td.push { color: #9ca3af; font-weight: 700; }
     tr.win td { background: #0f2a1a; }
@@ -81,6 +81,30 @@
     .wl-l { color: #ef4444; font-weight: 700; }
     .bet-card { margin-bottom: 8px; cursor: pointer; border-left: 4px solid; }
     .bet-card:active { opacity: 0.7; }
+    /* AI Picks styles */
+    .ai-section-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+    .ai-badge { background: linear-gradient(135deg, #8b5cf6, #6366f1); color: #fff; font-size: 9px; font-weight: 700; padding: 3px 8px; border-radius: 10px; letter-spacing: 0.5px; }
+    .ai-pick-card { background: #1a1a1a; border-radius: 10px; padding: 12px 14px; margin-bottom: 8px; border-left: 4px solid; cursor: pointer; }
+    .ai-pick-card:active { opacity: 0.7; }
+    .ai-rank { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 50%; font-size: 11px; font-weight: 800; margin-right: 8px; flex-shrink: 0; }
+    .ai-pick-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+    .ai-pick-player { font-weight: 700; font-size: 14px; display: flex; align-items: center; }
+    .ai-pick-prop { color: #eab308; font-weight: 700; font-size: 13px; }
+    .ai-pick-meta { display: flex; justify-content: space-between; font-size: 11px; color: #9ca3af; margin-bottom: 4px; }
+    .ai-pick-rationale { font-size: 11px; color: #d1d5db; font-style: italic; }
+    .ai-conf-smash { border-left-color: #22c55e; }
+    .ai-conf-over { border-left-color: #eab308; }
+    .ai-conf-fade { border-left-color: #ef4444; }
+    .ai-conf-under { border-left-color: #ef4444; }
+    .conf-tag { font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 6px; }
+    .conf-tag-smash { background: #22c55e22; color: #22c55e; }
+    .conf-tag-over { background: #eab30822; color: #eab308; }
+    .conf-tag-fade { background: #ef444422; color: #ef4444; }
+    .conf-tag-under { background: #ef444422; color: #ef4444; }
+    .divider { height: 1px; background: #333; margin: 16px 0 8px; }
+    .section-toggle { display: flex; gap: 6px; margin-bottom: 12px; }
+    .toggle-btn { flex: 1; padding: 8px; text-align: center; font-size: 11px; font-weight: 700; border-radius: 8px; border: 1px solid #444; background: #1a1a1a; color: #9ca3af; cursor: pointer; }
+    .toggle-btn.active { background: #eab30822; color: #eab308; border-color: #eab308; }
   </style>
 </head>
 <body>
@@ -95,41 +119,27 @@
 const SHEET_ID = "12gBgVx_RCsIytjZHjfZWgLtG-R-zcPbYYE-CVFd4EDw";
 const METRICS = ["PTS","REB","AST","PRA","PR","PA","RA","FG3M","STOCKS","DK_FP","FPPM","USAGE_PPM"];
 
-// --- STATE ---
 let state = {
-  tonight: [], playerStats: [], props: [], splits: [],
+  tonight: [], playerStats: [], props: [], splits: [], aiPicks: [],
   player: "", metric: "PTS", line: "",
-  activeTab: "dashboard", oppFilter: "",
+  activeTab: "dashboard", oppFilter: "", betsView: "ai",
   loading: true, error: null, loadedAt: null
 };
 
-// --- CACHES (invalidated on player/metric change) ---
-let cache = {
-  player: null,
-  sortedLogs: null,       // all logs for current player, sorted desc
-  bestBets: null,         // computed once on load
-};
+let cache = { player: null, sortedLogs: null, bestBets: null };
 
-// --- HELPERS ---
 const toNum = v => parseFloat(v) || 0;
-
-const impliedProb = (odds) => {
-  if (!odds) return null;
-  const o = parseFloat(odds);
-  return o < 0 ? Math.abs(o) / (Math.abs(o) + 100) : 100 / (o + 100);
-};
-
+const impliedProb = (odds) => { if (!odds) return null; const o = parseFloat(odds); return o < 0 ? Math.abs(o) / (Math.abs(o) + 100) : 100 / (o + 100); };
 const fmtOdds = o => o > 0 ? `+${o}` : `${o}`;
 const barColor = (val, line) => !line ? "#eab308" : val > line ? "#22c55e" : val === line ? "#9ca3af" : "#ef4444";
 const avgColor = (val, line) => !line ? "#eab308" : val >= line ? "#eab308" : "#f97316";
-const escHtml = s => s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+const escHtml = s => String(s||"").replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 
-// --- CONFIDENCE ---
 const CONF_LEVELS = [
-  { min_edge: 0.10, min_rate: 0.65, label: "SMASH",       stars: 5, color: "#22c55e" },
-  { min_edge: 0.05, min_rate: 0.60, label: "Strong Play",  stars: 4, color: "#86efac" },
-  { min_edge: 0.00, min_rate: 0.55, label: "Lean Over",    stars: 3, color: "#eab308" },
-  { min_edge: -0.05, min_rate: 0,   label: "Neutral",      stars: 0, color: "#9ca3af" },
+  { min_edge: 0.10, min_rate: 0.65, label: "SMASH", stars: 5, color: "#22c55e" },
+  { min_edge: 0.05, min_rate: 0.60, label: "Strong Play", stars: 4, color: "#86efac" },
+  { min_edge: 0.00, min_rate: 0.55, label: "Lean Over", stars: 3, color: "#eab308" },
+  { min_edge: -0.05, min_rate: 0, label: "Neutral", stars: 0, color: "#9ca3af" },
 ];
 
 function getConfidence(seasonRate, overImpl, edge) {
@@ -143,49 +153,37 @@ function getConfidence(seasonRate, overImpl, edge) {
   return { label: "❌ PASS", stars: -1, color: "#ef4444" };
 }
 
-// --- DATA FETCHING ---
 const fetchSheet = (name) => new Promise((resolve, reject) => {
   const url = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(name)}`;
   fetch(url).then(r => {
     if (!r.ok) throw new Error(`Sheet "${name}" returned ${r.status}`);
     return r.text();
   }).then(text => {
-    Papa.parse(text, {
-      header: true, skipEmptyLines: true, dynamicTyping: true,
-      complete: r => resolve(r.data), error: reject
-    });
+    Papa.parse(text, { header: true, skipEmptyLines: true, dynamicTyping: true, complete: r => resolve(r.data), error: reject });
   }).catch(reject);
 });
 
 function loadAllData() {
-  state.loading = true;
-  state.error = null;
-  cache.bestBets = null;
-  cache.player = null;
-  cache.sortedLogs = null;
+  state.loading = true; state.error = null;
+  cache.bestBets = null; cache.player = null; cache.sortedLogs = null;
   render();
 
   Promise.all([
     fetchSheet("Tonights_Opponent").catch(e => { console.error("Tonights_Opponent:", e); return null; }),
     fetchSheet("Player_Stats").catch(e => { console.error("Player_Stats:", e); return null; }),
     fetchSheet("DK_Player_Props").catch(() => []),
-    fetchSheet("Home_Away_Splits").catch(() => [])
-  ]).then(([tonight, playerStats, props, splits]) => {
-    // Validate critical sheets
+    fetchSheet("Home_Away_Splits").catch(() => []),
+    fetchSheet("Daily_Picks").catch(() => [])
+  ]).then(([tonight, playerStats, props, splits, aiPicks]) => {
     if (!tonight || !playerStats) {
-      state.error = !tonight && !playerStats
-        ? "Could not load Tonights_Opponent or Player_Stats sheets."
-        : !tonight ? "Could not load Tonights_Opponent sheet."
-        : "Could not load Player_Stats sheet.";
-      state.loading = false;
-      render();
-      return;
+      state.error = "Could not load critical sheets.";
+      state.loading = false; render(); return;
     }
-
     state.tonight = tonight;
     state.playerStats = playerStats;
     state.props = props || [];
     state.splits = splits || [];
+    state.aiPicks = (aiPicks || []).sort((a, b) => toNum(a.rank) - toNum(b.rank));
     state.loading = false;
     state.loadedAt = new Date().toLocaleTimeString();
 
@@ -194,78 +192,66 @@ function loadAllData() {
       const p = state.props.find(pr => pr.PLAYER_NAME === state.player && pr.METRIC === state.metric);
       state.line = p?.DK_LINE || "";
     }
-
-    // Pre-compute best bets once
     computeBestBets();
     render();
-  }).catch(err => {
+  }).catch(() => {
     state.loading = false;
     state.error = "Could not load data. Make sure your Google Sheet is set to 'Anyone with the link can view'.";
     render();
   });
 }
 
-// --- BEST BETS (computed once on load) ---
 function computeBestBets() {
-  if (!state.props.length || !state.playerStats.length) {
-    cache.bestBets = [];
-    return;
-  }
-
-  // Pre-group logs by player for O(1) lookups
+  if (!state.props.length || !state.playerStats.length) { cache.bestBets = []; return; }
   const logsByPlayer = {};
   state.playerStats.forEach(p => {
     const name = p.PLAYER_NAME;
     if (!logsByPlayer[name]) logsByPlayer[name] = [];
     logsByPlayer[name].push(p);
   });
-
   const plays = [];
   state.props.forEach(prop => {
     if (!prop.DK_LINE || !prop.OVER_ODDS) return;
     const lineN = parseFloat(prop.DK_LINE);
     const logs = logsByPlayer[prop.PLAYER_NAME];
     if (!logs || logs.length < 5) return;
-
     const hits = logs.filter(p => toNum(p[prop.METRIC]) > lineN).length;
     const sRate = hits / logs.length;
     const oImpl = impliedProb(prop.OVER_ODDS);
     const edg = sRate - oImpl;
     const cnf = getConfidence(sRate, oImpl, edg);
-
     if (cnf && cnf.stars >= 4) {
-      plays.push({
-        player: prop.PLAYER_NAME,
-        metric: prop.METRIC,
-        line: lineN,
-        odds: prop.OVER_ODDS,
-        edge: edg,
-        conf: cnf
-      });
+      plays.push({ player: prop.PLAYER_NAME, metric: prop.METRIC, line: lineN, odds: prop.OVER_ODDS, edge: edg, conf: cnf });
     }
   });
-
   plays.sort((a, b) => b.edge - a.edge);
   cache.bestBets = plays;
 }
 
-// --- PLAYER LOG CACHE ---
 function getPlayerLogs(playerName) {
   if (cache.player === playerName && cache.sortedLogs) return cache.sortedLogs;
   cache.player = playerName;
-  cache.sortedLogs = state.playerStats
-    .filter(p => p.PLAYER_NAME === playerName)
-    .sort((a, b) => (b.GAME_DATE || "").localeCompare(a.GAME_DATE || ""));
+  cache.sortedLogs = state.playerStats.filter(p => p.PLAYER_NAME === playerName).sort((a, b) => (b.GAME_DATE || "").localeCompare(a.GAME_DATE || ""));
   return cache.sortedLogs;
 }
 
-// --- TAB SWITCHING ---
-function switchTab(tab) {
-  state.activeTab = tab;
-  render();
+function switchTab(tab) { state.activeTab = tab; render(); }
+
+function getAIConfClass(conf) {
+  const c = (conf || "").toUpperCase();
+  if (c === "SMASH") return "smash";
+  if (c === "OVER") return "over";
+  if (c === "FADE" || c === "UNDER") return "fade";
+  return "over";
 }
 
-// --- RENDER ---
+function getAIConfColor(conf) {
+  const c = (conf || "").toUpperCase();
+  if (c === "SMASH") return "#22c55e";
+  if (c === "OVER") return "#eab308";
+  return "#ef4444";
+}
+
 function render() {
   const app = document.getElementById("app");
 
@@ -273,14 +259,13 @@ function render() {
     app.innerHTML = `<div class="loading"><div style="font-size:32px;animation:bounce 0.8s ease-in-out infinite">🏀</div><div style="color:#666;font-size:14px">Loading dashboard...</div></div>`;
     return;
   }
-
   if (state.error) {
-    app.innerHTML = `<div class="error">⚠️ ${escHtml(state.error)}<br><br><span style="color:#666;font-size:12px">Make sure your Google Sheet is set to "Anyone with the link can view"</span><br><br><button class="refresh-btn" id="retryBtn">Retry</button></div>`;
+    app.innerHTML = `<div class="error">⚠️ ${escHtml(state.error)}<br><br><button class="refresh-btn" id="retryBtn">Retry</button></div>`;
     document.getElementById("retryBtn")?.addEventListener("click", loadAllData);
     return;
   }
 
-  const { tonight, props, splits, player, metric, line, activeTab, oppFilter } = state;
+  const { tonight, props, splits, player, metric, line, activeTab, oppFilter, aiPicks, betsView } = state;
   const lineNum = parseFloat(line) || 0;
   const playerTonight = tonight.find(t => t.PLAYER_NAME === player) || {};
   const allPlayerLogs = getPlayerLogs(player);
@@ -289,147 +274,159 @@ function render() {
   const prop = props.find(p => p.PLAYER_NAME === player && p.METRIC === metric) || {};
   const split = splits.find(s => s.PLAYER_NAME === player) || {};
 
-  const seasAvg  = toNum(mostRecent[`Seas_${metric}`]);
-  const l10Avg   = toNum(mostRecent[`L10_${metric}`]);
-  const l5Avg    = toNum(mostRecent[`L5_${metric}`]);
+  const seasAvg = toNum(mostRecent[`Seas_${metric}`]);
+  const l10Avg = toNum(mostRecent[`L10_${metric}`]);
+  const l5Avg = toNum(mostRecent[`L5_${metric}`]);
   const lastGame = toNum(mostRecent[metric]);
-  const h2hVal   = toNum(playerTonight[`H2H_${metric}`]);
-  const homeVal  = toNum(split[`${metric}_Home`]);
-  const awayVal  = toNum(split[`${metric}_Away`]);
+  const h2hVal = toNum(playerTonight[`H2H_${metric}`]);
+  const homeVal = toNum(split[`${metric}_Home`]);
+  const awayVal = toNum(split[`${metric}_Away`]);
 
-  const hitsL5     = lineNum ? allPlayerLogs.slice(0,5).filter(p => toNum(p[metric]) > lineNum).length : null;
-  const hitsL10    = lineNum ? allPlayerLogs.slice(0,10).filter(p => toNum(p[metric]) > lineNum).length : null;
+  const hitsL5 = lineNum ? allPlayerLogs.slice(0,5).filter(p => toNum(p[metric]) > lineNum).length : null;
+  const hitsL10 = lineNum ? allPlayerLogs.slice(0,10).filter(p => toNum(p[metric]) > lineNum).length : null;
   const hitsSeason = lineNum ? allPlayerLogs.filter(p => toNum(p[metric]) > lineNum).length : null;
   const pushSeason = lineNum ? allPlayerLogs.filter(p => toNum(p[metric]) === lineNum).length : null;
-  const seasonRate = hitsSeason !== null && allPlayerLogs.length > 0 ? hitsSeason / allPlayerLogs.length : null;
+  const nonPushGames = allPlayerLogs.length - (pushSeason || 0);
+  const seasonRate = hitsSeason !== null && nonPushGames > 0 ? hitsSeason / nonPushGames : null;
 
-  const overOdds  = prop.OVER_ODDS;
+  const overOdds = prop.OVER_ODDS;
   const underOdds = prop.UNDER_ODDS;
-  const overImpl  = overOdds  ? impliedProb(overOdds)  : null;
+  const overImpl = overOdds ? impliedProb(overOdds) : null;
   const underImpl = underOdds ? impliedProb(underOdds) : null;
   const edge = seasonRate !== null && overImpl !== null ? seasonRate - overImpl : null;
   const conf = getConfidence(seasonRate, overImpl, edge);
-
   const maxLog = Math.max(...gameLogs.map(g => toNum(g[metric])), lineNum || 0, 1);
 
-  // Player dropdown
+  // Build injury lookup from AI picks
+  const injuryPlayers = new Set();
+  aiPicks.forEach(p => {
+    const ctx = (p.injury_context || "").toLowerCase();
+    if (ctx && ctx !== "n/a" && ctx !== "none" && ctx.length > 2) {
+      // Flag the player themselves if their injury context mentions common keywords
+      if (ctx.includes("out") || ctx.includes("questionable") || ctx.includes("doubtful") || ctx.includes("gtd")) {
+        injuryPlayers.add(p.player);
+      }
+    }
+  });
+
   const sortedPlayers = [...tonight].sort((a,b) => (a.PLAYER_NAME||"").localeCompare(b.PLAYER_NAME||""));
-  const playerOpts = sortedPlayers.map(t =>
-    `<option value="${escHtml(t.PLAYER_NAME||"")}" ${t.PLAYER_NAME===player?"selected":""}>${escHtml(t.PLAYER_NAME||"")} (${escHtml(t.TEAM_ABBREVIATION||"")})</option>`
-  ).join("");
+  const playerOpts = sortedPlayers.map(t => {
+    const injured = injuryPlayers.has(t.PLAYER_NAME);
+    return `<option value="${escHtml(t.PLAYER_NAME||"")}" ${t.PLAYER_NAME===player?"selected":""}>${injured?"⚠️ ":""}${escHtml(t.PLAYER_NAME||"")} (${escHtml(t.TEAM_ABBREVIATION||"")})</option>`;
+  }).join("");
   const metricOpts = METRICS.map(m => `<option value="${m}" ${m===metric?"selected":""}>${m}</option>`).join("");
 
-  // Game log bars
   const bars = gameLogs.map(g => {
     const val = toNum(g[metric]);
     const h = Math.max(4, (val / maxLog) * 80);
-    const date = (g.GAME_DATE||"").slice(5);
-    return `<div class="bar-wrap">
-      <div class="bar-val">${val}</div>
-      <div class="bar" style="height:${h}px;background:${barColor(val,lineNum)}"></div>
-      <div class="bar-date">${date}</div>
-    </div>`;
+    return `<div class="bar-wrap"><div class="bar-val">${val}</div><div class="bar" style="height:${h}px;background:${barColor(val,lineNum)}"></div><div class="bar-date">${(g.GAME_DATE||"").slice(5)}</div></div>`;
   }).join("");
 
-  // Avg cards
-  const avgs = [
-    {l:"Season",v:seasAvg},{l:"L10",v:l10Avg},{l:"L5",v:l5Avg},{l:"Last",v:lastGame}
-  ].map(a => `
-    <div class="avg-card" style="border:1px solid ${lineNum && a.v>=lineNum?"#22c55e44":lineNum?"#ef444433":"#333"}">
-      <div class="avg-label">${a.l}</div>
-      <div class="avg-val" style="color:${avgColor(a.v,lineNum)}">${a.v.toFixed(1)}</div>
-    </div>`).join("");
+  const avgs = [{l:"Season",v:seasAvg},{l:"L10",v:l10Avg},{l:"L5",v:l5Avg},{l:"Last",v:lastGame}].map(a =>
+    `<div class="avg-card" style="border:1px solid ${lineNum&&a.v>=lineNum?"#22c55e44":lineNum?"#ef444433":"#333"}"><div class="avg-label">${a.l}</div><div class="avg-val" style="color:${avgColor(a.v,lineNum)}">${a.v.toFixed(1)}</div></div>`
+  ).join("");
 
-  // H2H bars
   let h2hBars = `<div class="no-data">1st Meeting</div>`;
   if (h2hVal > 0) {
     const mx = Math.max(h2hVal, seasAvg, 0.1);
-    h2hBars = [{l:"H2H",v:h2hVal,c:"#3b82f6"},{l:"Season",v:seasAvg,c:"#22c55e"}].map(b =>
-      `<div class="mini-bar-wrap">
-        <div class="mini-bar" style="height:${Math.max(4,(b.v/mx)*60)}px;background:${b.c}"></div>
-        <div class="mini-bar-label">${b.l}</div>
-        <div class="mini-bar-val">${b.v.toFixed(1)}</div>
-      </div>`).join("");
+    h2hBars = [{l:"H2H",v:h2hVal,c:"#3b82f6"},{l:"Season",v:seasAvg,c:"#22c55e"}].map(b => `<div class="mini-bar-wrap"><div class="mini-bar" style="height:${Math.max(4,(b.v/mx)*60)}px;background:${b.c}"></div><div class="mini-bar-label">${b.l}</div><div class="mini-bar-val">${b.v.toFixed(1)}</div></div>`).join("");
   }
 
-  // H/R bars
   let hrBars = `<div class="no-data">No data</div>`;
   if (homeVal > 0 || awayVal > 0) {
     const mx = Math.max(homeVal, awayVal, 0.1);
-    hrBars = [{l:"Home",v:homeVal,c:"#8b5cf6"},{l:"Away",v:awayVal,c:"#06b6d4"}].map(b =>
-      `<div class="mini-bar-wrap">
-        <div class="mini-bar" style="height:${Math.max(4,(b.v/mx)*60)}px;background:${b.c}"></div>
-        <div class="mini-bar-label">${b.l}</div>
-        <div class="mini-bar-val">${b.v.toFixed(1)}</div>
-      </div>`).join("");
+    hrBars = [{l:"Home",v:homeVal,c:"#8b5cf6"},{l:"Away",v:awayVal,c:"#06b6d4"}].map(b => `<div class="mini-bar-wrap"><div class="mini-bar" style="height:${Math.max(4,(b.v/mx)*60)}px;background:${b.c}"></div><div class="mini-bar-label">${b.l}</div><div class="mini-bar-val">${b.v.toFixed(1)}</div></div>`).join("");
   }
 
-  // Stats strip
-  const statStrip = ["PTS","REB","AST","PRA","FG3M","STOCKS","DK_FP"].map(s =>
-    `<div class="stat-item"><div class="stat-label">${s}</div><div class="stat-val">${toNum(mostRecent[`Seas_${s}`]).toFixed(1)}</div></div>`
-  ).join("");
-
+  const statStrip = ["PTS","REB","AST","PRA","FG3M","STOCKS","DK_FP"].map(s => `<div class="stat-item"><div class="stat-label">${s}</div><div class="stat-val">${toNum(mostRecent[`Seas_${s}`]).toFixed(1)}</div></div>`).join("");
   const lastUpdated = mostRecent.LAST_UPDATED || playerTonight.LAST_UPDATED || "—";
 
-  // --- GAME LOG TABLE (only build if on that tab) ---
+  // --- GAME LOG ---
   let gameLogHTML = "";
   if (activeTab === "gamelog") {
     const opponents = [...new Set(allPlayerLogs.map(g => g.GAME_OPP).filter(Boolean))].sort();
-    const oppOpts = `<option value="">All Opponents</option>` + opponents.map(o =>
-      `<option value="${escHtml(o)}" ${oppFilter===o?"selected":""}>${escHtml(o)}</option>`).join("");
-
+    const oppOpts = `<option value="">All Opponents</option>` + opponents.map(o => `<option value="${escHtml(o)}" ${oppFilter===o?"selected":""}>${escHtml(o)}</option>`).join("");
     const filteredLogs = oppFilter ? allPlayerLogs.filter(g => g.GAME_OPP === oppFilter) : allPlayerLogs;
     const defaultCols = ["MIN","PTS","REB","AST","FG3M","TOV","PRA","FGA","DK_FP"];
     const extraCol = !defaultCols.includes(metric) ? metric : null;
     const allCols = extraCol ? [...defaultCols, extraCol] : defaultCols;
-
     const ths = allCols.map(c => `<th class="${c===metric?"hl":""}">${c}</th>`).join("");
     const trs = filteredLogs.map(g => {
       const isWin = (g.WL||"").toUpperCase() === "W";
       const cells = allCols.map(col => {
-        const val = toNum(g[col]);
-        const isM = col === metric;
+        const val = toNum(g[col]); const isM = col === metric;
         let cls = isM ? "hl" : "";
-        if (isM && lineNum) {
-          cls = val > lineNum ? "hit" : val === lineNum ? "push" : "miss";
-        }
+        if (isM && lineNum) cls = val > lineNum ? "hit" : val === lineNum ? "push" : "miss";
         return `<td class="${cls}">${val}</td>`;
       }).join("");
-      return `<tr class="${isWin?"win":"loss"}">
-        <td>${(g.GAME_DATE||"").slice(5)}</td>
-        <td>${escHtml(g.GAME_OPP||"—")}</td>
-        <td class="${isWin?"wl-w":"wl-l"}">${g.WL||"—"}</td>
-        ${cells}
-      </tr>`;
+      return `<tr class="${isWin?"win":"loss"}"><td>${(g.GAME_DATE||"").slice(5)}</td><td>${escHtml(g.GAME_OPP||"—")}</td><td class="${isWin?"wl-w":"wl-l"}">${g.WL||"—"}</td>${cells}</tr>`;
     }).join("");
-
-    gameLogHTML = `
-      <div class="log-controls"><select id="oppFilter">${oppOpts}</select></div>
-      <div class="log-table-wrap">
-        <table><thead><tr><th>DATE</th><th>OPP</th><th>W/L</th>${ths}</tr></thead>
-        <tbody>${trs}</tbody></table>
-      </div>`;
+    gameLogHTML = `<div class="log-controls"><select id="oppFilter">${oppOpts}</select></div><div class="log-table-wrap"><table><thead><tr><th>DATE</th><th>OPP</th><th>W/L</th>${ths}</tr></thead><tbody>${trs}</tbody></table></div>`;
   }
 
-  // --- BEST BETS (only build if on that tab) ---
+  // --- BEST BETS / AI PICKS ---
   let bestBetsHTML = "";
   if (activeTab === "bestbets") {
-    const bets = cache.bestBets || [];
-    if (bets.length === 0) {
-      bestBetsHTML = `<div class="section"><div class="no-data" style="padding:20px;text-align:center;">No 4+ Star plays found at current lines.</div></div>`;
+    const toggleBtns = `<div class="section-toggle">
+      <button class="toggle-btn ${betsView==='ai'?'active':''}" data-bets-view="ai">🤖 AI Picks</button>
+      <button class="toggle-btn ${betsView==='stats'?'active':''}" data-bets-view="stats">📊 Stats Edge</button>
+    </div>`;
+
+    if (betsView === "ai") {
+      if (!aiPicks.length) {
+        bestBetsHTML = `<div class="section">${toggleBtns}<div class="no-data" style="padding:20px;text-align:center;">No AI picks available. Run v8.4 script first.</div></div>`;
+      } else {
+        const pickCards = aiPicks.map((pick, i) => {
+          const confCls = getAIConfClass(pick.confidence);
+          const confColor = getAIConfColor(pick.confidence);
+          const rankBg = confCls === "smash" ? "#22c55e" : confCls === "over" ? "#eab308" : "#ef4444";
+          return `<div class="ai-pick-card ai-conf-${confCls}" data-ai-idx="${i}">
+            <div class="ai-pick-top">
+              <div class="ai-pick-player">
+                <span class="ai-rank" style="background:${rankBg};color:#000">${pick.rank || i+1}</span>
+                ${escHtml(pick.player)}
+              </div>
+              <span class="conf-tag conf-tag-${confCls}">${escHtml(pick.confidence)}</span>
+            </div>
+            <div class="ai-pick-meta">
+              <span>${escHtml(pick.lean)} ${pick.line} ${escHtml(pick.prop_type)}</span>
+              <span>${escHtml(pick.game)}</span>
+            </div>
+            <div class="ai-pick-rationale">${escHtml(pick.rationale)}</div>
+            ${pick.injury_context ? `<div style="font-size:10px;color:#f97316;margin-top:3px">⚠️ ${escHtml(pick.injury_context)}</div>` : ""}
+          </div>`;
+        }).join("");
+
+        const smashCount = aiPicks.filter(p => (p.confidence||"").toUpperCase() === "SMASH").length;
+        const aiDate = aiPicks[0]?.DATE || aiPicks[0]?.LAST_UPDATED || "";
+
+        bestBetsHTML = `<div class="section">
+          ${toggleBtns}
+          <div class="ai-section-header">
+            <div class="label" style="margin:0">AI DAILY PICKS</div>
+            <span class="ai-badge">🤖 GEMINI · ${smashCount} SMASH</span>
+          </div>
+          <div style="color:#9ca3af;font-size:10px;margin-bottom:10px">${escHtml(aiDate)}</div>
+          ${pickCards}
+        </div>`;
+      }
     } else {
-      bestBetsHTML = `<div class="section"><div class="label">Top Plays (4+ Stars)</div>` +
-        bets.map((play, i) => `
-        <div class="bet-card card" style="border-left-color:${play.conf.color}" data-bet-idx="${i}">
-          <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
-            <span style="font-weight:700;color:#fff;">${escHtml(play.player)}</span>
-            <span style="color:#eab308;font-weight:700;">Over ${play.line} ${play.metric}</span>
-          </div>
-          <div style="display:flex;justify-content:space-between;font-size:11px;color:#9ca3af;">
-            <span>Odds: ${fmtOdds(play.odds)}</span>
-            <span style="color:${play.conf.color}">${play.conf.label} (+${(play.edge*100).toFixed(1)}% Edge)</span>
-          </div>
-        </div>`).join("") + `</div>`;
+      const bets = cache.bestBets || [];
+      if (bets.length === 0) {
+        bestBetsHTML = `<div class="section">${toggleBtns}<div class="no-data" style="padding:20px;text-align:center;">No 4+ Star plays found at current lines.</div></div>`;
+      } else {
+        bestBetsHTML = `<div class="section">${toggleBtns}<div class="label">Top Plays (4+ Stars)</div>` +
+          bets.map((play, i) => `<div class="bet-card card" style="border-left-color:${play.conf.color}" data-bet-idx="${i}">
+            <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
+              <span style="font-weight:700;color:#fff;">${escHtml(play.player)}</span>
+              <span style="color:#eab308;font-weight:700;">Over ${play.line} ${play.metric}</span>
+            </div>
+            <div style="display:flex;justify-content:space-between;font-size:11px;color:#9ca3af;">
+              <span>Odds: ${fmtOdds(play.odds)}</span>
+              <span style="color:${play.conf.color}">${play.conf.label} (+${(play.edge*100).toFixed(1)}% Edge)</span>
+            </div>
+          </div>`).join("") + `</div>`;
+      }
     }
   }
 
@@ -449,135 +446,77 @@ function render() {
 
     <div id="page-dashboard" class="page ${activeTab==="dashboard"?"active":""}">
       <div class="stats-strip"><div class="stats-strip-inner">${statStrip}</div></div>
-      <div class="section">
-        <div class="label">Game Log — ${metric}</div>
-        <div class="bar-chart">${bars}</div>
-        ${lineNum ? `<div class="line-indicator">Line: ${lineNum}</div>` : ""}
-      </div>
-      <div class="section">
-        <div class="label">Averages</div>
-        <div class="avg-cards">${avgs}</div>
-      </div>
-      <div class="section">
-        <div class="split-row">
-          <div class="split-card">
-            <span class="split-title">H2H vs ${escHtml(playerTonight.TONIGHT_OPP||"—")}</span>
-            <div class="mini-bars-container">${h2hBars}</div>
-          </div>
-          <div class="split-card">
-            <span class="split-title">Home / Away</span>
-            <div class="mini-bars-container">${hrBars}</div>
-          </div>
-        </div>
-      </div>
-      <div class="section">
-        <div class="card">
-          <div class="card-title">⚡ Vegas</div>
-          <div class="vegas-row">
-            <span class="vegas-key">${escHtml(playerTonight.TEAM_ABBREVIATION||"—")} vs ${escHtml(playerTonight.TONIGHT_OPP||"—")}</span>
-            <span style="color:#22c55e;font-size:12px;font-weight:600">${playerTonight.SPREAD?`Spread: ${playerTonight.SPREAD}`:"—"}</span>
-          </div>
-          <div class="vegas-row"><span class="vegas-key">Team Total</span><span class="vegas-val">${playerTonight.IMPLIED_TOTAL||"—"}</span></div>
-          <div class="vegas-row"><span class="vegas-key">Opp Total</span><span class="vegas-val">${playerTonight.OPP_IMPLIED_TOTAL||"—"}</span></div>
-          <div class="vegas-row"><span class="vegas-key">Game Total</span><span class="vegas-val">${playerTonight.GAME_TOTAL||"—"}</span></div>
-        </div>
-      </div>
-      <div class="section">
-        <div class="card">
-          <div class="card-title">🎰 DK Props — ${metric}</div>
-          ${prop.DK_LINE
-            ? `<div class="dk-line">Line: ${prop.DK_LINE}</div>
-               <div class="dk-odds">
-                 <span style="color:#22c55e;font-size:12px">${overOdds?`Over: ${fmtOdds(overOdds)} (${(overImpl*100).toFixed(1)}%)`:"—"}</span>
-                 <span style="color:#ef4444;font-size:12px">${underOdds?`Under: ${fmtOdds(underOdds)} (${(underImpl*100).toFixed(1)}%)`:"—"}</span>
-               </div>`
-            : `<div class="no-data" style="margin-bottom:8px">No DK line available</div>`}
-          ${lineNum ? `
-            <div class="hit-row" style="border-top:1px solid #333;padding-top:8px;margin-top:4px">
-              <span class="hit-key">L5</span><span class="hit-val">${hitsL5} / 5</span>
-            </div>
-            <div class="hit-row"><span class="hit-key">L10</span><span class="hit-val">${hitsL10} / 10</span></div>
-            <div class="hit-row"><span class="hit-key">Season</span><span class="hit-val">${hitsSeason} / ${allPlayerLogs.length} (${seasonRate!==null?(seasonRate*100).toFixed(0):"—"}%)${pushSeason > 0 ? ` · ${pushSeason} push` : ""}</span></div>
-          ` : ""}
-        </div>
-      </div>
-      ${conf ? `
-      <div class="section">
-        <div class="confidence" style="background:${conf.color}22;border:2px solid ${conf.color}">
-          <div class="conf-label" style="color:${conf.color}">${conf.label}</div>
-          ${edge!==null?`<div class="conf-edge">Edge: ${edge>0?"+":""}${(edge*100).toFixed(1)}% vs book</div>`:""}
-        </div>
-      </div>` : ""}
-      <div class="timestamp">Data: ${escHtml(lastUpdated)}${state.loadedAt ? ` · Loaded: ${state.loadedAt}` : ""}</div>
+      <div class="section"><div class="label">Game Log — ${metric}</div><div class="bar-chart">${bars}</div>${lineNum?`<div class="line-indicator">Line: ${lineNum}</div>`:""}</div>
+      <div class="section"><div class="label">Averages</div><div class="avg-cards">${avgs}</div></div>
+      <div class="section"><div class="split-row">
+        <div class="split-card"><span class="split-title">H2H vs ${escHtml(playerTonight.TONIGHT_OPP||"—")}</span><div class="mini-bars-container">${h2hBars}</div></div>
+        <div class="split-card"><span class="split-title">Home / Away</span><div class="mini-bars-container">${hrBars}</div></div>
+      </div></div>
+      <div class="section"><div class="card"><div class="card-title">⚡ Vegas</div>
+        <div class="vegas-row"><span class="vegas-key">${escHtml(playerTonight.TEAM_ABBREVIATION||"—")} vs ${escHtml(playerTonight.TONIGHT_OPP||"—")}</span><span style="color:#22c55e;font-size:12px;font-weight:600">${playerTonight.SPREAD?`Spread: ${playerTonight.SPREAD}`:"—"}</span></div>
+        <div class="vegas-row"><span class="vegas-key">Team Total</span><span class="vegas-val">${playerTonight.IMPLIED_TOTAL||"—"}</span></div>
+        <div class="vegas-row"><span class="vegas-key">Opp Total</span><span class="vegas-val">${playerTonight.OPP_IMPLIED_TOTAL||"—"}</span></div>
+        <div class="vegas-row"><span class="vegas-key">Game Total</span><span class="vegas-val">${playerTonight.GAME_TOTAL||"—"}</span></div>
+      </div></div>
+      <div class="section"><div class="card"><div class="card-title">🎰 DK Props — ${metric}</div>
+        ${prop.DK_LINE?`<div class="dk-line">Line: ${prop.DK_LINE}</div><div class="dk-odds"><span style="color:#22c55e;font-size:12px">${overOdds?`Over: ${fmtOdds(overOdds)} (${(overImpl*100).toFixed(1)}%)`:"—"}</span><span style="color:#ef4444;font-size:12px">${underOdds?`Under: ${fmtOdds(underOdds)} (${(underImpl*100).toFixed(1)}%)`:"—"}</span></div>`:`<div class="no-data" style="margin-bottom:8px">No DK line available</div>`}
+        ${lineNum?`<div class="hit-row" style="border-top:1px solid #333;padding-top:8px;margin-top:4px"><span class="hit-key">L5</span><span class="hit-val">${hitsL5} / 5</span></div><div class="hit-row"><span class="hit-key">L10</span><span class="hit-val">${hitsL10} / 10</span></div><div class="hit-row"><span class="hit-key">Season</span><span class="hit-val">${hitsSeason} / ${allPlayerLogs.length} (${seasonRate!==null?(seasonRate*100).toFixed(0):"—"}%)${pushSeason>0?` · ${pushSeason} push`:""}</span></div>`:""}
+      </div></div>
+      ${conf?`<div class="section"><div class="confidence" style="background:${conf.color}22;border:2px solid ${conf.color}"><div class="conf-label" style="color:${conf.color}">${conf.label}</div>${edge!==null?`<div class="conf-edge">Edge: ${edge>0?"+":""}${(edge*100).toFixed(1)}% vs book</div>`:""}</div></div>`:""}
+      <div class="timestamp">Data: ${escHtml(lastUpdated)}${state.loadedAt?` · Loaded: ${state.loadedAt}`:""}</div>
       <div class="timestamp" style="color:#555;font-size:9px;padding-top:0">Made by S. Krolikowski w/ Claude • 2026</div>
     </div>
 
-    <div id="page-gamelog" class="page ${activeTab==="gamelog"?"active":""}">
-      ${gameLogHTML}
-    </div>
-
-    <div id="page-bestbets" class="page ${activeTab==="bestbets"?"active":""}">
-      ${bestBetsHTML}
-    </div>
+    <div id="page-gamelog" class="page ${activeTab==="gamelog"?"active":""}">${gameLogHTML}</div>
+    <div id="page-bestbets" class="page ${activeTab==="bestbets"?"active":""}">${bestBetsHTML}</div>
 
     <div class="tab-bar">
       <button class="tab-btn ${activeTab==="dashboard"?"active":""}" data-tab="dashboard">📊 Dashboard</button>
       <button class="tab-btn ${activeTab==="gamelog"?"active":""}" data-tab="gamelog">📋 Game Log</button>
-      <button class="tab-btn ${activeTab==="bestbets"?"active":""}" data-tab="bestbets">🔥 Best Bets</button>
-    </div>
-  `;
+      <button class="tab-btn ${activeTab==="bestbets"?"active":""}" data-tab="bestbets">🔥 Picks</button>
+    </div>`;
 
-  // --- EVENT LISTENERS (delegated) ---
+  // --- EVENT LISTENERS ---
   document.getElementById("playerSelect").addEventListener("change", e => {
-    state.player = e.target.value;
-    state.oppFilter = "";
+    state.player = e.target.value; state.oppFilter = "";
     const p = state.props.find(pr => pr.PLAYER_NAME === state.player && pr.METRIC === state.metric);
-    state.line = p?.DK_LINE || "";
-    render();
+    state.line = p?.DK_LINE || ""; render();
   });
-
   document.getElementById("metricSelect").addEventListener("change", e => {
     state.metric = e.target.value;
     const p = state.props.find(pr => pr.PLAYER_NAME === state.player && pr.METRIC === state.metric);
-    state.line = p?.DK_LINE || "";
-    render();
+    state.line = p?.DK_LINE || ""; render();
   });
-
-  document.getElementById("lineInput").addEventListener("change", e => {
-    state.line = e.target.value;
-    render();
-  });
-
+  document.getElementById("lineInput").addEventListener("input", e => { state.line = e.target.value; render(); });
   document.getElementById("refreshBtn")?.addEventListener("click", loadAllData);
-
-  const oppEl = document.getElementById("oppFilter");
-  if (oppEl) oppEl.addEventListener("change", e => {
-    state.oppFilter = e.target.value;
-    render();
-  });
-
-  // Delegated tab clicks
+  document.getElementById("oppFilter")?.addEventListener("change", e => { state.oppFilter = e.target.value; render(); });
   document.querySelector(".tab-bar")?.addEventListener("click", e => {
     const tab = e.target.closest("[data-tab]")?.dataset.tab;
     if (tab) switchTab(tab);
   });
-
-  // Delegated best bet card clicks (no inline JS)
+  // Toggle AI / Stats views
+  document.querySelectorAll("[data-bets-view]").forEach(btn => {
+    btn.addEventListener("click", () => { state.betsView = btn.dataset.betsView; render(); });
+  });
+  // AI pick card click -> jump to dashboard
+  document.querySelectorAll(".ai-pick-card[data-ai-idx]").forEach(card => {
+    card.addEventListener("click", () => {
+      const pick = state.aiPicks[parseInt(card.dataset.aiIdx)];
+      if (pick) {
+        state.player = pick.player; state.metric = pick.prop_type || "PTS";
+        state.line = String(pick.line || ""); switchTab("dashboard");
+      }
+    });
+  });
+  // Stats bet card click
   document.querySelectorAll(".bet-card[data-bet-idx]").forEach(card => {
     card.addEventListener("click", () => {
-      const idx = parseInt(card.dataset.betIdx);
-      const play = cache.bestBets?.[idx];
-      if (play) {
-        state.player = play.player;
-        state.metric = play.metric;
-        state.line = String(play.line);
-        switchTab("dashboard");
-      }
+      const play = cache.bestBets?.[parseInt(card.dataset.betIdx)];
+      if (play) { state.player = play.player; state.metric = play.metric; state.line = String(play.line); switchTab("dashboard"); }
     });
   });
 }
 
-// --- INIT ---
 loadAllData();
 </script>
 </body>
