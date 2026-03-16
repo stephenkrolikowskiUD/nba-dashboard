@@ -215,6 +215,10 @@ function computeBestBets() {
     const lineN = parseFloat(prop.DK_LINE);
     const logs = logsByPlayer[prop.PLAYER_NAME];
     if (!logs || logs.length < 5) return;
+        const sortedLogs = logs.sort((a, b) => (b.GAME_DATE || "").localeCompare(a.GAME_DATE || ""));
+    const lastPlayed = sortedLogs[0]?.GAME_DATE || "";
+    const cutoff = new Date(Date.now() - 10 * 86400000).toISOString().slice(0, 10);
+    if (lastPlayed < cutoff) return;
     const hits = logs.filter(p => toNum(p[prop.METRIC]) > lineN).length;
     const sRate = hits / logs.length;
     const oImpl = impliedProb(prop.OVER_ODDS);
