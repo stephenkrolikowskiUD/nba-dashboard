@@ -131,6 +131,27 @@ tr.loss td{background:#2a0f0f}
 .streak-filters{display:flex;gap:6px;padding:0 16px 10px;overflow-x:auto}
 .sf-btn{padding:5px 10px;font-size:10px;font-weight:700;color:#9ca3af;background:#1a1a1a;border:1px solid #444;border-radius:14px;cursor:pointer;white-space:nowrap;flex-shrink:0}
 .sf-btn.active{color:#eab308;background:#eab30815;border-color:rgba(234,179,8,.4)}
+/* Draft Cheat Sheet */
+.draft-card{background:#1a1a1a;border-radius:10px;padding:10px 14px;margin:0 16px 6px;border-left:3px solid #444;display:flex;align-items:center;gap:10px;cursor:pointer;transition:opacity .15s}
+.draft-card:active{transform:scale(.98)}
+.draft-card.drafted{opacity:.3;text-decoration:line-through}
+.draft-card.smash{border-left-color:#22c55e}
+.draft-card.tier1{border-left-color:#eab308}
+.draft-card.tier2{border-left-color:#3b82f6}
+.draft-card.tier3{border-left-color:#8b5cf6}
+.draft-rank{font-size:14px;font-weight:800;min-width:24px;text-align:center}
+.draft-main{flex:1;min-width:0}
+.draft-name{font-weight:700;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.draft-meta{font-size:10px;color:#9ca3af;margin-top:2px}
+.draft-tags{display:flex;gap:4px;flex-wrap:wrap;margin-top:3px}
+.draft-tag{font-size:8px;font-weight:700;padding:1px 5px;border-radius:4px}
+.draft-fp{text-align:right;min-width:50px}
+.draft-fp-val{font-size:18px;font-weight:800}
+.draft-fp-lbl{font-size:8px;color:#9ca3af}
+.draft-tier-label{padding:8px 16px 4px;font-size:11px;font-weight:700;letter-spacing:1px}
+.draft-controls{display:flex;gap:6px;padding:8px 16px;align-items:center}
+.draft-reset{background:none;border:1px solid #444;border-radius:6px;color:#9ca3af;font-size:10px;padding:4px 10px;cursor:pointer}
+.draft-count{font-size:10px;color:#9ca3af;flex:1;text-align:right}
 /* Props browser */
 .props-filter{display:flex;gap:6px;padding:8px 16px;overflow-x:auto}
 .pf-btn{padding:6px 12px;font-size:11px;font-weight:600;color:#9ca3af;background:#1a1a1a;border:1px solid #444;border-radius:16px;cursor:pointer;white-space:nowrap;flex-shrink:0}
@@ -151,7 +172,7 @@ let st={
   tonight:[],playerStats:[],props:[],splits:[],aiPicks:[],
   player:"",metric:"PTS",line:"",
   activeTab:"dashboard",oppFilter:"",
-  picksView:"ai",propsMetric:"ALL",propsSearch:"",streakFilter:"all",streaks:[],
+  picksView:"ai",propsMetric:"ALL",propsSearch:"",streakFilter:"all",streaks:[],drafted:new Set(),
   loading:true,error:null,loadedAt:null
 };
 let cache={player:null,sortedLogs:null,bestBets:null};
@@ -291,7 +312,56 @@ function switchTab(t){st.activeTab=t;render()}
 function setPicksView(v){st.picksView=v;render()}
 function setPropsMetric(m){st.propsMetric=m;render()}
 function setStreakFilter(f){st.streakFilter=f;render()}
-function streakToDash(name){st.player=name;st.activeTab="dashboard";st.oppFilter="";const p=st.props.find(pr=>pr.PLAYER_NAME===name&&pr.METRIC===st.metric);st.line=p?.DK_LINE||"";render()}
+function toggleDrafted(name){if(st.drafted.has(name))st.drafted.delete(name);else st.drafted.add(name);render()}
+function resetDrafted(){st.drafted.clear();render()}
+
+function getDraftBoard(){
+  const board=[];
+  const aiMap=new Map();
+  st.aiPicks.forEach(p=>{if(p.player)aiMap.set(p.player,p)});
+
+  for(const p of st.tonight){
+    const name=p.PLAYER_NAME;if(!name)continue;
+    const logs=getPlayerLogs(name);
+    const most=logs[0]||{};
+
+    // Calculate UD_FP from rolling averages or season stats
+    const seasPTS=toNum(most.Seas_PTS),seasREB=toNum(most.Seas_REB),seasAST=toNum(most.Seas_AST);
+    const seasSTL=toNum(most.Seas_STL),seasBLK=toNum(most.Seas_BLK),seasTOV=toNum(most.Seas_TOV);
+    const projUD=seasPTS*1.0+seasREB*1.2+seasAST*1.5+seasSTL*3.0+seasBLK*3.0+seasTOV*-1.0;
+
+    const l5PTS=toNum(most.L5_PTS),l5REB=toNum(most.L5_REB),l5AST=toNum(most.L5_AST);
+    const l5STL=toNum(most.L5_STL),l5BLK=toNum(most.L5_BLK),l5TOV=toNum(most.L5_TOV);
+    const l5UD=l5PTS*1.0+l5REB*1.2+l5AST*1.5+l5STL*3.0+l5BLK*3.0+l5TOV*-1.0;
+
+    const stocks=seasSTL+seasBLK;
+    const stocksFP=stocks*3.0;
+    const astFP=seasAST*1.5;
+    const scoringFP=seasPTS*1.0;
+    const stocksBoost=stocksFP/(projUD||1);
+    const astBoost=astFP/(projUD||1);
+
+    const aiPick=aiMap.get(name);
+    const isSmash=aiPick&&(aiPick.confidence||"").toUpperCase()==="SMASH";
+    const gameTotal=toNum(p.GAME_TOTAL);
+    const spread=p.SPREAD;
+
+    board.push({
+      name,team:p.TEAM_ABBREVIATION||"",opp:p.TONIGHT_OPP||"",
+      projUD:projUD.toFixed(1),l5UD:l5UD.toFixed(1),
+      seasPTS,seasREB,seasAST,stocks:stocks.toFixed(1),
+      stocksBoost,astBoost,
+      gameTotal,spread,
+      isSmash,aiPick,
+      gamesPlayed:logs.length
+    });
+  }
+
+  board.sort((a,b)=>parseFloat(b.projUD)-parseFloat(a.projUD));
+  return board;
+}
+
+function streakToDash(name){window.scrollTo(0,0);st.player=name;st.activeTab="dashboard";st.oppFilter="";const p=st.props.find(pr=>pr.PLAYER_NAME===name&&pr.METRIC===st.metric);st.line=p?.DK_LINE||"";cache.player=null;render()}
 
 function render(){
   const app=document.getElementById("app");
@@ -354,6 +424,7 @@ function render(){
   if(activeTab==="picks"){
     const subTabs=`<div class="sub-tabs" style="padding-top:12px">
       <div class="sub-tab ${picksView==="ai"?"active":""}" onclick="setPicksView('ai')">🤖 AI Picks</div>
+      <div class="sub-tab ${picksView==="draft"?"active":""}" onclick="setPicksView('draft')">🏀 Draft</div>
       <div class="sub-tab ${picksView==="streaks"?"active":""}" onclick="setPicksView('streaks')">🔥 Streaks</div>
       <div class="sub-tab ${picksView==="stats"?"active":""}" onclick="setPicksView('stats')">📊 Stats Edge</div>
       <div class="sub-tab ${picksView==="props"?"active":""}" onclick="setPicksView('props')">🎲 Props</div>
@@ -375,8 +446,64 @@ function render(){
           </div>`;
         }).join("");
       }
+    }else if(picksView==="draft"){
+      const board=getDraftBoard();
+      const available=board.filter(p=>!st.drafted.has(p.name));
+      const draftedCount=st.drafted.size;
+
+      // Tier assignment based on projected UD_FP
+      function getTier(proj){
+        const v=parseFloat(proj);
+        if(v>=45)return{label:"TIER 1 — Elite",cls:"tier1",color:"#eab308"};
+        if(v>=38)return{label:"TIER 2 — Strong",cls:"tier2",color:"#3b82f6"};
+        if(v>=30)return{label:"TIER 3 — Solid",cls:"tier3",color:"#8b5cf6"};
+        if(v>=22)return{label:"TIER 4 — Role Player",cls:"",color:"#9ca3af"};
+        return{label:"TIER 5 — Dart Throw",cls:"",color:"#666"};
+      }
+
+      picksHTML=subTabs;
+      picksHTML+=`<div style="padding:12px 16px 4px;color:#eab308;font-size:13px;font-weight:700">🏀 Draft Cheat Sheet</div>
+      <div style="padding:0 16px 4px;color:#9ca3af;font-size:10px">Underdog scoring: PTS×1 REB×1.2 AST×1.5 STL×3 BLK×3 TOV×-1. Tap to mark as drafted.</div>
+      <div class="draft-controls">
+        <button class="draft-reset" onclick="resetDrafted()">Reset Board</button>
+        <div class="draft-count">${draftedCount} drafted · ${available.length} available</div>
+      </div>`;
+
+      let lastTier="";
+      board.forEach((p,i)=>{
+        const tier=getTier(p.projUD);
+        const isDrafted=st.drafted.has(p.name);
+        const tierChanged=tier.label!==lastTier;
+        lastTier=tier.label;
+
+        // Tags
+        let tags=[];
+        if(p.isSmash)tags.push(`<span class="draft-tag" style="background:#22c55e22;color:#22c55e">SMASH</span>`);
+        if(p.stocksBoost>=.20)tags.push(`<span class="draft-tag" style="background:#ef444422;color:#ef4444">🛡 STOCKS ${(p.stocksBoost*100).toFixed(0)}%</span>`);
+        if(p.astBoost>=.25)tags.push(`<span class="draft-tag" style="background:#3b82f622;color:#3b82f6">🎯 AST BOOST</span>`);
+        if(p.gameTotal>=230)tags.push(`<span class="draft-tag" style="background:#eab30822;color:#eab308">⚡ HIGH TOTAL</span>`);
+        if(parseFloat(p.l5UD)>parseFloat(p.projUD)*1.1)tags.push(`<span class="draft-tag" style="background:#22c55e22;color:#22c55e">📈 HOT</span>`);
+
+        const tierHeader=tierChanged?`<div class="draft-tier-label" style="color:${tier.color}">${tier.label}</div>`:"";
+        const cardCls=`draft-card${isDrafted?" drafted":""}${p.isSmash&&!isDrafted?" smash":!isDrafted?" "+tier.cls:""}`;
+
+        picksHTML+=`${tierHeader}<div class="${cardCls}" onclick="toggleDrafted('${esc(p.name)}')">
+          <div class="draft-rank" style="color:${isDrafted?"#666":tier.color}">${i+1}</div>
+          <div class="draft-main">
+            <div class="draft-name">${esc(p.name)}</div>
+            <div class="draft-meta">${esc(p.team)} vs ${esc(p.opp)} · ${p.seasPTS.toFixed(0)}p/${p.seasREB.toFixed(0)}r/${p.seasAST.toFixed(0)}a · STK: ${p.stocks}${p.gameTotal?` · O/U: ${p.gameTotal}`:""}</div>
+            ${tags.length?`<div class="draft-tags">${tags.join("")}</div>`:""}
+          </div>
+          <div class="draft-fp">
+            <div class="draft-fp-val" style="color:${isDrafted?"#666":tier.color}">${p.projUD}</div>
+            <div class="draft-fp-lbl">UD FP</div>
+            ${parseFloat(p.l5UD)!==parseFloat(p.projUD)?`<div style="font-size:9px;color:${parseFloat(p.l5UD)>parseFloat(p.projUD)?"#22c55e":"#ef4444"};margin-top:1px">L5: ${p.l5UD}</div>`:""}
+          </div>
+        </div>`;
+      });
+
     }else if(picksView==="streaks"){
-      const allStreaks=getStreaks();
+      const allStreaks=st.streaks;
       const filters=[{k:"all",l:"All"},{k:"fire",l:"🔥 5+"},{k:"pts",l:"PTS"},{k:"pra",l:"PRA"},{k:"reb",l:"REB"},{k:"ast",l:"AST"},{k:"3pm",l:"3PM"}];
       let filtered=allStreaks;
       if(st.streakFilter==="fire")filtered=filtered.filter(s=>s.streak>=5);
@@ -449,7 +576,7 @@ function render(){
   <div class="header">
     <div class="header-top"><div class="header-title">🏀 NBA DFS Dashboard</div><button class="refresh-btn" id="refreshBtn">↻ Refresh</button></div>
     ${showHeader?`<select id="playerSelect">${playerOpts}</select>
-    <div class="row"><select id="metricSelect">${metricOpts}</select><input type="number" id="lineInput" value="${line}" placeholder="Enter Line" step="0.5"/></div>`:""}
+    <div class="row"><select id="metricSelect">${metricOpts}</select><input type="number" id="lineInput" value="${line}" placeholder="Enter Line" step="0.5" inputmode="decimal"/></div>`:""}
   </div>
 
   <div class="page ${activeTab==="dashboard"?"active":""}">
@@ -511,7 +638,7 @@ function loadAllData(){
     st.aiPicks=(picks||[]).sort((a,b)=>toNum(a.rank)-toNum(b.rank));
     st.loading=false;st.loadedAt=new Date().toLocaleTimeString();
     if(tonight.length>0&&!st.player){st.player=tonight[0].PLAYER_NAME||"";const p=st.props.find(pr=>pr.PLAYER_NAME===st.player&&pr.METRIC===st.metric);st.line=p?.DK_LINE||""}
-    computeBestBets();render();
+    computeBestBets();st.streaks=getStreaks();render();
   }).catch(()=>{st.loading=false;st.error="Could not load data. Make sure your Google Sheet is set to 'Anyone with the link can view'.";render()});
 }
 loadAllData();
