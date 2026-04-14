@@ -242,7 +242,7 @@ function getRollingVal(row,prefix,m){
   return toNum(row[`${prefix}${m}`]);
 }
 
-let st={tonight:[],playerStats:[],props:[],splits:[],aiPicks:[],player:"",metric:"PTS",line:"",activeTab:"dashboard",oppFilter:"",picksView:"bets",propsMetric:"ALL",propsSearch:"",streakFilter:"all",dueFilter:"all",streaks:[],drafted:new Set(),slipLegs:"3",loading:true,error:null,loadedAt:null};
+let st={tonight:[],playerStats:[],props:[],splits:[],aiPicks:[],player:"",metric:"PTS",line:"",activeTab:"dashboard",oppFilter:"",picksView:"bets",propsMetric:"ALL",propsSearch:"",streakFilter:"all",dueFilter:"all",streaks:[],drafted:new Set(),slipLegs:"3",parlayStat:"PTS",loading:true,error:null,loadedAt:null};
 let cache={player:null,sortedLogs:null};
 const toNum=v=>parseFloat(v)||0;
 const fmtOdds=v=>{if(!v&&v!==0)return"—";v=parseInt(v);return v>0?`+${v}`:`${v}`};
@@ -420,10 +420,49 @@ function setPropsMetric(m){st.propsMetric=m;render()}
 function setStreakFilter(f){st.streakFilter=f;render()}
 function setDueFilter(f){st.dueFilter=f;render()}
 function setSlipLegs(n){st.slipLegs=n;render()}
+function setParlayStat(s){st.parlayStat=s;render()}
 function toggleDrafted(name){if(st.drafted.has(name))st.drafted.delete(name);else st.drafted.add(name);render()}
 function resetDrafted(){st.drafted.clear();render()}
 function pickDashPlayer(name){st.player=name;st.oppFilter="";const p=st.props.find(pr=>pr.PLAYER_NAME===st.player&&pr.METRIC===st.metric);st.line=p?.DK_LINE||"";cache.player=null;render()}
 function streakToDash(name){window.scrollTo(0,0);st.player=name;st.activeTab="dashboard";st.oppFilter="";const p=st.props.find(pr=>pr.PLAYER_NAME===name&&pr.METRIC===st.metric);st.line=p?.DK_LINE||"";cache.player=null;render()}
+
+// ═══ STAT PARLAY ENGINE (ported from MLB) ═══
+function getStatParlayBoard(stat){
+  const rows=[];const tSet=new Set(st.tonight.map(p=>p.PLAYER_NAME).filter(Boolean));
+  for(const p of st.props){
+    const name=p.PLAYER_NAME;if(!name||!tSet.has(name))continue;
+    if(p.METRIC!==stat)continue;
+    const dkLine=parseFloat(p.DK_LINE);if(isNaN(dkLine))continue;
+    const overOdds=parseInt(p.OVER_ODDS),underOdds=parseInt(p.UNDER_ODDS);
+    const logs=getPlayerLogs(name);if(logs.length<3)continue;const most=logs[0]||{};
+    const hitsOver=COMBO_STATS[stat]
+      ?logs.filter(g=>COMBO_STATS[stat].reduce((s,k)=>s+toNum(g[k]),0)>dkLine).length
+      :logs.filter(g=>toNum(g[stat])>dkLine).length;
+    const hitRate=hitsOver/logs.length;
+    const overIP=impliedProb(overOdds);
+    const edge=overIP!==null?hitRate-overIP:0;
+    const seasAvg=getRollingVal(most,"Seas_",stat);
+    const l5Avg=getRollingVal(most,"L5_",stat);
+    const pT=st.tonight.find(t=>t.PLAYER_NAME===name)||{};
+    let matchupScore=0;
+    const oppDef=toNum(pT.OPP_DEF_RTG);if(oppDef>=112)matchupScore+=2;else if(oppDef>=110)matchupScore+=1;
+    const oppPace=toNum(pT.OPP_PACE);if(oppPace>=100)matchupScore+=2;else if(oppPace>=98)matchupScore+=1;
+    const gt=toNum(pT.GAME_TOTAL);if(gt>=230)matchupScore+=2;
+    const score=hitRate*40+Math.max(edge,0)*30+matchupScore*3+(l5Avg>seasAvg?5:0);
+    rows.push({name,team:pT.TEAM_ABBREVIATION||"",opp:pT.TONIGHT_OPP||"",stat,dkLine,overOdds,underOdds,hitRate,hitsOver,total:logs.length,edge,seasAvg,l5Avg,matchupScore,score});
+  }
+  rows.sort((a,b)=>b.score-a.score);return rows;
+}
+function getStatParlayCombos(board,legs){
+  if(board.length<legs)return[];const combos=[];const pool=board.slice(0,legs<=2?12:15);
+  function gen(start,current){
+    if(current.length===legs){const teams=current.map(d=>d.team);const teamCounts={};for(const t of teams){teamCounts[t]=(teamCounts[t]||0)+1;if(teamCounts[t]>2)return}
+      const score=current.reduce((s,d)=>s+d.score,0);const avgHitRate=current.reduce((s,d)=>s+d.hitRate,0)/legs;const avgEdge=current.reduce((s,d)=>s+d.edge,0)/legs;
+      combos.push({players:current.slice(),score,avgHitRate,avgEdge,teams:[...new Set(teams)]});return}
+    for(let i=start;i<pool.length&&combos.length<300;i++){if(current.some(c=>c.name===pool[i].name))continue;current.push(pool[i]);gen(i+1,current);current.pop()}}
+  gen(0,[]);combos.sort((a,b)=>b.score-a.score);return combos.slice(0,8);
+}
+
 function getDraftBoard(){
   const board=[];const aiMap=new Map();st.aiPicks.forEach(p=>{if(p.player)aiMap.set(p.player,p)});
   for(const p of st.tonight){const name=p.PLAYER_NAME;if(!name)continue;const logs=getPlayerLogs(name);const most=logs[0]||{};
@@ -511,6 +550,7 @@ function render(){
       <div class="sub-tab ${picksView==="draft"?"active":""}" onclick="setPicksView('draft')">🏀 Draft</div>
       <div class="sub-tab ${picksView==="streaks"?"active":""}" onclick="setPicksView('streaks')">🔥 Streaks</div>
       <div class="sub-tab ${picksView==="due"?"active":""}" onclick="setPicksView('due')">🧊 Due</div>
+      <div class="sub-tab ${picksView==="parlays"?"active":""}" onclick="setPicksView('parlays')">🎯 Parlays</div>
       <div class="sub-tab ${picksView==="props"?"active":""}" onclick="setPicksView('props')">🎲 Props</div>
     </div>`;
 
@@ -566,6 +606,22 @@ function render(){
         picksHTML+=fil.map((d,i)=>{const top=i<3;const tags=[`<span class="due-tag cold">❄️ ${d.coldGap}% below avg</span>`,`<span class="due-tag cold">📉 ${d.drought}G drought</span>`];
           d.matchupTags.forEach(mt=>tags.push(`<span class="due-tag matchup">✅ ${esc(mt)}</span>`));if(d.propTag)tags.push(`<span class="due-tag prop">🎲 DK ${d.stat} ${d.propTag.line}${d.propTag.overOdds?" O:"+fmtOdds(d.propTag.overOdds):""}</span>`);
           return`<div class="due-card ${top?"top":""}" onclick="streakToDash('${esc(d.name)}')"><div class="due-left"><div><span style="font-size:14px;margin-right:4px">🧊</span><span class="due-name">${esc(d.name)}</span><span class="due-label">${d.stat}</span></div><div class="due-meta">${esc(d.team)} vs ${esc(d.opp)}</div><div class="due-meta">Season: ${d.seasAvg}/g → L5: ${d.l5Avg}/g</div><div class="due-chart">${dueMiniChart(d.recentVals,parseFloat(d.seasAvg))}</div><div class="due-tags">${tags.join("")}</div></div><div class="due-right"><div class="due-score">${d.totalScore.toFixed(0)}</div><div class="due-sub">due score</div></div></div>`}).join("")+`</div>`}
+
+    }else if(picksView==="parlays"){
+      const pStat=st.parlayStat;const board=getStatParlayBoard(pStat);
+      const combos2=getStatParlayCombos(board,2);const combos3=getStatParlayCombos(board,3);
+      const availStats=["PTS","REB","AST","PRA","FG3M","STOCKS","DK_FP"];
+      picksHTML=subTabs+`<div style="padding:12px 16px 4px;display:flex;justify-content:space-between;align-items:center"><div style="color:#818cf8;font-size:13px;font-weight:700">🎯 Stat Parlays</div><div style="color:#9ca3af;font-size:10px">${board.length} players w/ ${pStat} prop</div></div>`;
+      picksHTML+=`<div style="padding:0 16px 4px;color:#9ca3af;font-size:10px">Pick a stat, see the best same-stat parlay combos ranked by hit rate + EV edge + matchup.</div>`;
+      picksHTML+=`<div class="due-filters">${availStats.map(s=>`<div class="pf-btn ${pStat===s?"active":""}" onclick="setParlayStat('${s}')">${s==="PTS"?"🔥":""}${s==="REB"?"💪":""}${s==="AST"?"🎯":""}${s==="PRA"?"💎":""}${s==="FG3M"?"🎯":""}${s==="STOCKS"?"🛡️":""}${s==="DK_FP"?"⚡":""} ${s}</div>`).join("")}</div>`;
+      if(!board.length)picksHTML+=`<div class="no-data" style="padding:40px;text-align:center">No DK ${pStat} props available. Run the engine first.</div>`;
+      else{
+        picksHTML+=`<div style="padding:8px 16px 4px;color:#e5e7eb;font-size:11px;font-weight:600">TOP ${pStat} PLAYS — Ranked Board</div><div class="cards-grid">`;
+        picksHTML+=board.slice(0,12).map((d,i)=>{const hrPct=(d.hitRate*100).toFixed(0);const edgePct=d.edge>0?`+${(d.edge*100).toFixed(0)}%`:`${(d.edge*100).toFixed(0)}%`;const isTop=i<3;
+          return`<div class="due-card ${isTop?"top":""}" onclick="streakToDash('${esc(d.name)}')"><div class="due-left"><div><span style="font-size:12px;font-weight:800;color:${isTop?"#818cf8":"#38bdf8"};margin-right:6px">#${i+1}</span><span class="due-name">${esc(d.name)}</span></div><div class="due-meta">${esc(d.team)} vs ${esc(d.opp)}</div><div class="due-tags"><span class="due-tag" style="background:#1a1a2a;color:#93c5fd;border:1px solid #2d2d5a">${hrPct}% hit rate</span>${d.edge>0?`<span class="due-tag matchup">${edgePct} EV</span>`:""}<span class="due-tag prop">DK ${d.dkLine} O:${fmtOdds(d.overOdds)}</span>${d.matchupScore>=2?`<span class="due-tag matchup">✅ Matchup</span>`:""}</div><div class="due-meta" style="margin-top:4px">Seas: ${d.seasAvg.toFixed(1)}/g · L5: ${d.l5Avg.toFixed(1)}/g · ${d.hitsOver}/${d.total} over ${d.dkLine}</div></div><div class="due-right"><div class="due-score" style="color:${isTop?"#818cf8":"#38bdf8"}">${d.score.toFixed(0)}</div><div class="due-sub">score</div></div></div>`}).join("")+`</div>`;
+        if(combos2.length){picksHTML+=`<div style="padding:12px 16px 0"><div style="color:#eab308;font-size:12px;font-weight:700;margin-bottom:8px">🎰 Best 2-Leg ${pStat} Parlays</div><div class="cards-grid">${combos2.map((c,i)=>{const avgHR=(c.avgHitRate*100).toFixed(0);return`<div class="bet-card ${i===0?"elite":"mid"}" style="cursor:default"><div class="bet-left"><div class="bet-name">${c.players.map(p=>esc(p.name)).join(" + ")}</div><div class="bet-meta">${c.teams.join(" · ")} · Avg edge: ${c.avgEdge>0?"+":""}${(c.avgEdge*100).toFixed(0)}%</div></div><div class="bet-right"><div class="bet-edge pos">${avgHR}%</div><div class="bet-sub">avg hit</div></div></div>`}).join("")}</div></div>`}
+        if(combos3.length){picksHTML+=`<div style="padding:12px 16px 0"><div style="color:#eab308;font-size:12px;font-weight:700;margin-bottom:8px">🎰 Best 3-Leg ${pStat} Parlays</div><div class="cards-grid">${combos3.map((c,i)=>{const avgHR=(c.avgHitRate*100).toFixed(0);return`<div class="bet-card ${i===0?"elite":"mid"}" style="cursor:default"><div class="bet-left"><div class="bet-name">${c.players.map(p=>esc(p.name)).join(" + ")}</div><div class="bet-meta">${c.teams.join(" · ")} · Avg edge: ${c.avgEdge>0?"+":""}${(c.avgEdge*100).toFixed(0)}%</div></div><div class="bet-right"><div class="bet-edge pos">${avgHR}%</div><div class="bet-sub">avg hit</div></div></div>`}).join("")}</div></div>`}
+      }
 
     }else if(picksView==="props"){
       const allM=[...new Set(st.props.map(p=>p.METRIC).filter(Boolean))].sort();const fil=st.propsMetric==="ALL"?st.props:st.props.filter(p=>p.METRIC===st.propsMetric);
